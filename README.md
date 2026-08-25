@@ -23,7 +23,7 @@
 * **Advanced AHP Diagnostics & Inverse Tuning:** Features Consistency Ratio (CR) calculation, circular judgment loop detection, automated minimum-revision matrix auto-tuning, and a direct weight slider tuner (Inverse AHP).
 * **Fuzzy Trapezoidal Modeling:** Capture decision uncertainty through volatility ($V$), epistemic uncertainty ($E$), and risk-averse bias shifts ($bias$) mapped into crisp trapezoidal bounds $[a, b, c, d]$.
 * **Comprehensive Analytics Dashboard:** Visualize multi-model rank agreement, consensus winners, model robustness percentages, and alternative-agnostic performance breakdowns.
-* **Robustness & Sensitivity Suite:** Probe model stability across 6 sensitivity dimensions, generate factor leverage Tornado charts, scan critical decision boundaries, propagate epistemic uncertainty intervals, and run stochastic Monte Carlo simulations ($N = 50,000+$ iterations).
+* **Robustness & Sensitivity Suite:** Probe model stability across 6 sensitivity dimensions, generate factor leverage Tornado charts, scan critical decision boundaries, propagate epistemic uncertainty intervals, and run stochastic Monte Carlo simulations (< 50,000 iterations).
 
 ---
 
