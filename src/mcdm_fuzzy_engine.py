@@ -1,0 +1,119 @@
+"""
+Isolated Decision Support System - Fuzzy MCDM Orchestrator
+Handles validation, matrix building, and execution STRICTLY for fuzzy methods.
+"""
+
+import os
+import json
+import uuid
+import numpy as np
+from datetime import datetime
+from typing import Dict, List, Any
+
+from src.factors_manager import load_factors_config
+from src.evaluations import get_evaluations_filepath, load_rating_config
+from src.mcdm_methods import METHOD_REGISTRY
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+RUNS_DIR = os.path.join(DATA_DIR, 'runs')
+WEIGHTS_FILE = os.path.join(DATA_DIR, 'weights.json')
+
+def _ensure_dirs():
+    if not os.path.exists(RUNS_DIR): os.makedirs(RUNS_DIR)
+
+def _build_fuzzy_matrices() -> Dict[str, Any]:
+    factors_config = load_factors_config()
+    factors = factors_config.get("factors", [])
+    if not factors: raise ValueError("No factors defined.")
+    
+    with open(WEIGHTS_FILE, 'r', encoding='utf-8') as f:
+        weights_data = json.load(f)
+    global_weights = weights_data.get("global_weights", {})
+    
+    domain_map = {d["id"]: d["name"] for d in factors_config.get("domains", [])}
+    cat_weights_display = {domain_map[d_id]: w * 100 for d_id, w in weights_data.get("category_weights", {}).items() if d_id in domain_map}
+    
+    eval_path = get_evaluations_filepath()
+    with open(eval_path, 'r', encoding='utf-8') as f:
+        evaluations = json.load(f)
+        
+    countries = list(set([e["country"] for e in evaluations]))
+    countries.sort()
+    
+    c_ids = [f["id"] for f in factors]
+    
+    # Build STRICTLY fuzzy matrix (grid of trapezoids)
+    fuzzy_matrix = np.empty((len(countries), len(factors)), dtype=object)
+    weights_arr = np.zeros(len(factors))
+    types_arr = np.zeros(len(factors))
+    
+    for j, fid in enumerate(c_ids):
+        weights_arr[j] = global_weights.get(fid, 0.0)
+        types_arr[j] = next((f["type"] for f in factors if f["id"] == fid), 1)
+        
+        for i, country in enumerate(countries):
+            ev = next((e for e in evaluations if e["criterion_id"] == fid and e["country"] == country), None)
+            if not ev: raise ValueError(f"Missing evaluation for {country} on {fid}.")
+            fuzzy_matrix[i, j] = tuple(ev["trapezoid"])
+            
+    w_sum = np.sum(weights_arr)
+    if w_sum > 0: weights_arr = weights_arr / w_sum
+            
+    return {
+        "countries": countries,
+        "matrix": fuzzy_matrix.tolist(), # We pass the trapezoids natively as "matrix"
+        "weights": weights_arr,
+        "types": types_arr,
+        "cat_weights_display": cat_weights_display
+    }
+
+def execute_fuzzy_run(method_names: List[str], run_name: str):
+    try:
+        data = _build_fuzzy_matrices()
+    except ValueError as e:
+        print(f"Fuzzy Validation Failed: {e}")
+        return None
+        
+    rating_config = load_rating_config()
+    parameters = {"defuzz_weights": rating_config.get("defuzz_weights", [0.1667, 0.3333, 0.3333, 0.1667])}
+    
+    run_id = f"run_fuzzy_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    results = {}
+    
+    for name in method_names:
+        if name not in METHOD_REGISTRY: continue
+        method = METHOD_REGISTRY[name]
+        
+        # Guardrail: Only run actual fuzzy methods here
+        if method.method_type != "fuzzy": continue
+        
+        try:
+            res = method.execute(
+                matrix=data["matrix"], # Method receives trapezoids seamlessly
+                weights=data["weights"], 
+                types=data["types"], 
+                parameters=parameters
+            )
+            res["method_type"] = "fuzzy"
+            results[name] = res
+        except Exception as e:
+            results[name] = {"status": "error", "warnings": [str(e)], "method_type": "fuzzy"}
+
+    run_snapshot = {
+        "run_id": run_id,
+        "name": run_name,
+        "timestamp": datetime.now().isoformat(),
+        "countries": data["countries"],
+        "category_weights": data["cat_weights_display"],
+        "methods_executed": method_names,
+        "parameters": parameters,
+        "results": results
+    }
+    
+    _ensure_dirs()
+    save_path = os.path.join(RUNS_DIR, f"{run_id}.json")
+    with open(save_path, 'w', encoding='utf-8') as f:
+        json.dump(run_snapshot, f, indent=4)
+        
+    return run_snapshot

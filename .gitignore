@@ -1,0 +1,32 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments (venv, env, .venv)
+venv/
+env/
+.venv/
+ENV/
+
+# IDE configurations (PyCharm, VS Code)
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Streamlit config / local cache
+.streamlit/
+
+# Tests
+test2.py
+ulti_test.py
+src/analysis/test_analysis_suite.py
+
+# Ignore generated MCDM baseline runs and sensitivity runs
+data/runs/*
+data/analysis_runs/*
+
+# Ensure the directories themselves are tracked
+!data/runs/.gitkeep
+!data/analysis_runs/.gitkeep
