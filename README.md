@@ -74,11 +74,11 @@ Decision Forge integrates rigorous mathematical implementations via `pymcdm` and
 
         python -m venv .venv
 
-    Windows:
+####    Windows:
 
         .venv\Scripts\activate
 
-    macOS / Linux:
+####    macOS / Linux:
 
         source .venv/bin/activate
 
