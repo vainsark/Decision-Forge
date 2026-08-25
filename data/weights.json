@@ -8,7 +8,7 @@
     "global_weights": {
  
     },
-    "cr_status": 0.2336963717603662,
+    "cr_status": 0,
     "ahp_matrix": [
  
     ],
@@ -18,7 +18,7 @@
     "ahp_matrix_backup": {
         "matrix": [
  
-        ],
-        "action_label": "Manual Edit on Family, Community & Relationships vs Finance"
+        ]
+
     }
 }
