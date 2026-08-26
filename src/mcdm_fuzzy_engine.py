@@ -32,7 +32,7 @@ def _build_fuzzy_matrices() -> Dict[str, Any]:
     global_weights = weights_data.get("global_weights", {})
     
     domain_map = {d["id"]: d["name"] for d in factors_config.get("domains", [])}
-    cat_weights_display = {domain_map[d_id]: w * 100 for d_id, w in weights_data.get("category_weights", {}).items() if d_id in domain_map}
+    cat_weights_display = {domain_map.get(d_id, d_id): w * 100 for d_id, w in weights_data.get("category_weights", {}).items()}
     
     eval_path = get_evaluations_filepath()
     with open(eval_path, 'r', encoding='utf-8') as f:
@@ -43,7 +43,6 @@ def _build_fuzzy_matrices() -> Dict[str, Any]:
     
     c_ids = [f["id"] for f in factors]
     
-    # Build STRICTLY fuzzy matrix (grid of trapezoids)
     fuzzy_matrix = np.empty((len(countries), len(factors)), dtype=object)
     weights_arr = np.zeros(len(factors))
     types_arr = np.zeros(len(factors))
@@ -55,17 +54,21 @@ def _build_fuzzy_matrices() -> Dict[str, Any]:
         for i, country in enumerate(countries):
             ev = next((e for e in evaluations if e["criterion_id"] == fid and e["country"] == country), None)
             if not ev: raise ValueError(f"Missing evaluation for {country} on {fid}.")
-            fuzzy_matrix[i, j] = tuple(ev["trapezoid"])
+            fuzzy_matrix[i, j] = tuple(ev.get("trapezoid", [ev.get("rating", 0)]*4))
             
     w_sum = np.sum(weights_arr)
     if w_sum > 0: weights_arr = weights_arr / w_sum
             
     return {
         "countries": countries,
-        "matrix": fuzzy_matrix.tolist(), # We pass the trapezoids natively as "matrix"
+        "matrix": fuzzy_matrix.tolist(),
         "weights": weights_arr,
         "types": types_arr,
-        "cat_weights_display": cat_weights_display
+        "cat_weights_display": cat_weights_display,
+        "raw_weights": weights_data,
+        "raw_evaluations": evaluations,
+        "raw_factors_config": factors_config,
+        "criteria_ids": c_ids
     }
 
 def execute_fuzzy_run(method_names: List[str], run_name: str):
@@ -76,7 +79,11 @@ def execute_fuzzy_run(method_names: List[str], run_name: str):
         return None
         
     rating_config = load_rating_config()
-    parameters = {"defuzz_weights": rating_config.get("defuzz_weights", [0.1667, 0.3333, 0.3333, 0.1667])}
+    parameters = {
+        "defuzz_weights": rating_config.get("defuzz_weights", [0.15, 0.35, 0.35, 0.15]),
+        "promethee_q": rating_config.get("promethee_q", 0.5),
+        "promethee_p": rating_config.get("promethee_p", 3.5)
+    }
     
     run_id = f"run_fuzzy_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     results = {}
@@ -100,15 +107,27 @@ def execute_fuzzy_run(method_names: List[str], run_name: str):
         except Exception as e:
             results[name] = {"status": "error", "warnings": [str(e)], "method_type": "fuzzy"}
 
+    # Filter evaluations to only the countries included in this run
+    active_countries = data["countries"]
+    filtered_evals = [e for e in data["raw_evaluations"] if e.get("country") in active_countries]
+
     run_snapshot = {
         "run_id": run_id,
         "name": run_name,
         "timestamp": datetime.now().isoformat(),
-        "countries": data["countries"],
+        "countries": active_countries,
         "category_weights": data["cat_weights_display"],
         "methods_executed": method_names,
         "parameters": parameters,
-        "results": results
+        "results": results,
+        # --- Complete Historical Snapshot ---
+        "snapshot": {
+            "weights": data["raw_weights"],
+            "evaluations": filtered_evals,
+            "factors_config": data["raw_factors_config"],
+            "criteria_ids": data["criteria_ids"],
+            "types": [int(t) for t in data["types"]]
+        }
     }
     
     _ensure_dirs()

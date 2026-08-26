@@ -7,7 +7,36 @@ import numpy as np
 from typing import Dict, Any, List
 from pymcdm.methods import WSM, WPM, WASPAS, TOPSIS, VIKOR
 from pymcdm.helpers import rankdata
-from pymcdm.normalizations import linear_normalization
+from pymcdm.normalizations import sum_normalization, linear_normalization
+from src.evaluations import load_rating_config
+
+
+def _get_normalization_function(default_func):
+    """
+    Reads normalization mode from rating_config.json and returns the callable function.
+    """
+    try:
+        config = load_rating_config()
+    except Exception:
+        config = {}
+        
+    mode = config.get("normalization_mode", "default")
+    ceiling = float(config.get("normalization_ceiling", 10.0))
+    
+    if mode == "sum":
+        return sum_normalization
+    elif mode == "linear":
+        return linear_normalization
+    elif mode == "absolute":
+        # Custom absolute ceiling normalization function
+        def absolute_norm(x, cost=False):
+            if cost:
+                return (ceiling - x) / ceiling
+            return x / ceiling
+        return absolute_norm
+    else:
+        # Fall back to the method's native default
+        return default_func
 
 class BaseMCDM:
     name = "Base"
@@ -22,14 +51,16 @@ class BaseMCDM:
 class WSM_Method(BaseMCDM):
     name = "WSM"
     def execute(self, matrix, weights, types, parameters):
-        scores = WSM()(matrix, weights, types)
+        norm_func = _get_normalization_function(sum_normalization)
+        scores = WSM(normalization_function=norm_func)(matrix, weights, types)
         ranking = rankdata(scores, reverse=True) 
         return {"status": "success", "scores": np.array(scores).tolist(), "ranking": np.array(ranking).tolist()}
 
 class WPM_Method(BaseMCDM):
     name = "WPM"
     def execute(self, matrix, weights, types, parameters):
-        scores = WPM()(matrix, weights, types)
+        norm_func = _get_normalization_function(sum_normalization)
+        scores = WPM(normalization_function=norm_func)(matrix, weights, types)
         ranking = rankdata(scores, reverse=True)
         return {"status": "success", "scores": np.array(scores).tolist(), "ranking": np.array(ranking).tolist()}
 
@@ -37,8 +68,8 @@ class WASPAS_Method(BaseMCDM):
     name = "WASPAS"
     def execute(self, matrix, weights, types, parameters):
         lmbd = parameters.get("WASPAS_lambda", 0.5)
-        # Pass the normalization function explicitly to properly inject custom lambda
-        scores = WASPAS(normalization_function=linear_normalization, l=lmbd)(matrix, weights, types)
+        norm_func = _get_normalization_function(linear_normalization)
+        scores = WASPAS(normalization_function=norm_func, l=lmbd)(matrix, weights, types)
         ranking = rankdata(scores, reverse=True)
         return {"status": "success", "scores": np.array(scores).tolist(), "ranking": np.array(ranking).tolist()}
 
@@ -48,6 +79,7 @@ class TOPSIS_Method(BaseMCDM):
         scores = TOPSIS()(matrix, weights, types)
         ranking = rankdata(scores, reverse=True)
         return {"status": "success", "scores": np.array(scores).tolist(), "ranking": np.array(ranking).tolist()}
+
 
 class VIKOR_Method(BaseMCDM):
     name = "VIKOR"

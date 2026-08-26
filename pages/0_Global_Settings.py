@@ -1,8 +1,8 @@
 """
 Decision Support System - Global Settings Page
 Manages fuzzy logic coefficients, defuzzification weights, PROMETHEE thresholds, 
-WASPAS Lambda parameter, weighting architecture (Dual Hybrid vs Single Flat) with strict switch validation,
-weight initialization preferences, and active decision alternatives.
+WASPAS Lambda parameter, weighting architecture (Dual Hybrid vs Single Flat),
+weight initialization preferences, active decision alternatives, and normalization engines.
 """
 
 import streamlit as st
@@ -27,7 +27,7 @@ EVALUATIONS_FILE = os.path.join(BASE_DIR, 'data', 'evaluations.json')
 
 st.set_page_config(page_title="Global Settings", page_icon="⚙️", layout="wide")
 st.title("⚙️ Global System Settings")
-st.caption("Configure global fuzzy parameters, weighting architecture, and active decision alternatives.")
+st.caption("Configure global fuzzy parameters, weighting architecture, normalization engines, and active decision alternatives.")
 
 # Load config with backward compatibility for legacy keys
 try:
@@ -44,7 +44,9 @@ except FileNotFoundError:
         "promethee_p": 3.5,
         "waspas_lambda": 0.5,
         "weight_system_mode": "Dual Hybrid (Categories & Criteria)",
-        "weight_init_mode": "🧮 AHP Pairwise Comparisons"
+        "weight_init_mode": "🧮 AHP Pairwise Comparisons",
+        "normalization_mode": "default",
+        "normalization_ceiling": 10.0
     }
 
 def save_rating_config(config):
@@ -65,12 +67,152 @@ def recalculate_all_evaluations(coeffs):
     with open(EVALUATIONS_FILE, 'w', encoding='utf-8') as f:
         json.dump(evals, f, indent=4)
 
-# UI TABS
-tab_math, tab_weights, tab_alternatives = st.tabs([
+# ==========================================
+# UI TABS (General & Weights is now 1st!)
+# ==========================================
+tab_general, tab_math, tab_alternatives = st.tabs([
+    "⚙️ General & Weight Settings", 
     "🧮 Mathematical & Fuzzy Parameters", 
-    "⚖️ Weight System & Initialization", 
     "🎯 Manage Alternatives"
 ])
+
+with tab_general:
+    st.subheader("General System & Weight Architecture")
+    st.caption("Configure weighting hierarchies, default weight initializations, and model normalization engines.")
+    
+    # ----------------------------------------------------
+    # PART 1: WEIGHT SYSTEM & INITIALIZATION (Form-based)
+    # ----------------------------------------------------
+    with st.form("weight_architecture_form"):
+        st.markdown("### 1. Weight System Architecture (Hierarchical vs Flat)")
+        st.caption("Choose between a hierarchical Dual Hybrid system (Categories → Criteria) or a simplified Single Flat Weighting system.")
+        
+        current_sys_mode = rating_config.get("weight_system_mode", "Dual Hybrid (Categories & Criteria)")
+        sys_options = ["Dual Hybrid (Categories & Criteria)", "Single Flat Weighting (Direct Criteria Pool)"]
+        default_sys_idx = sys_options.index(current_sys_mode) if current_sys_mode in sys_options else 0
+        
+        selected_sys_mode = st.radio(
+            "Select Weighting System",
+            options=sys_options,
+            index=default_sys_idx,
+            help="Dual Hybrid uses high-level categories with AHP pairwise matrices. Single Flat treats all criteria in a unified flat pool."
+        )
+        
+        # Interactive Guide for Weighting Architecture
+        with st.expander("💡 Guide: When to use Dual Hybrid vs. Single Flat (Double Weighting)", expanded=False):
+            st.markdown("""
+            * **Dual Hybrid (Categories & Criteria / Double Weighting)**: 
+              * *How it works*: Uses a two-tier hierarchy. You weight high-level categories (e.g., Economy, Safety), then weight individual criteria within each category. The final criterion weight is **Category Weight × Criterion Weight** (hence "double weighting").
+              * *Why use it*: Prevents human cognitive overload during AHP pairwise comparisons (evaluating 20+ criteria at once leads to math inconsistencies). It also guarantees macro-governance (e.g., ensuring Safety always controls 40% of the score).
+              * *When to use*: Complex, multi-pillar decisions with a large number of criteria.
+            * **Single Flat Weighting**: 
+              * *How it works*: All criteria sit in one flat list and are weighted directly against each other.
+              * *Why use it*: Maximum transparency and simplicity.
+              * *When to use*: Small, straightforward decision models with a small number of criteria (< 8).
+            """)
+        
+        st.markdown("---")
+        st.markdown("### 2. Default Category Weight Initialization")
+        st.caption("Choose whether new or reset weight structures default to structured AHP Pairwise Comparisons or Direct Sliders (applicable in Dual Hybrid mode)[cite: 4].")
+        
+        current_init_mode = rating_config.get("weight_init_mode", "🧮 AHP Pairwise Comparisons")
+        init_options = ["🧮 AHP Pairwise Comparisons", "🎛️ Direct Weight Sliders"]
+        default_init_idx = init_options.index(current_init_mode) if current_init_mode in init_options else 0
+        
+        selected_init_mode = st.selectbox(
+            "Default Weight Method", 
+            options=init_options, 
+            index=default_init_idx,
+            help="Determines how category priorities are initially constructed in the Weights Engine[cite: 4]."
+        )
+        
+        if st.form_submit_button("💾 Save Weight Preferences", type="primary"):
+            factors_cfg = load_factors_config()
+            existing_factors = factors_cfg.get("factors", [])
+            
+            is_switching_to_dual = (
+                current_sys_mode != selected_sys_mode and 
+                selected_sys_mode == "Dual Hybrid (Categories & Criteria)"
+            )
+            
+            if is_switching_to_dual and len(existing_factors) > 0:
+                st.error("⚠️ Cannot switch to Dual Hybrid mode because criteria already exist. Please delete all criteria first.")
+            else:
+                if selected_sys_mode == "Single Flat Weighting (Direct Criteria Pool)":
+                    ensure_ghost_category()
+                else:
+                    remove_ghost_category()
+                    
+                rating_config["weight_system_mode"] = selected_sys_mode
+                rating_config["weight_init_mode"] = selected_init_mode
+                save_rating_config(rating_config)
+                st.success("Weight system and initialization preferences saved successfully!")
+                st.rerun()
+
+    st.markdown("---")
+
+    # ----------------------------------------------------
+    # PART 2: NORMALIZATION ENGINE SETTINGS (Reactive - Outside Form)
+    # ----------------------------------------------------
+    st.markdown("### 3. Normalization Engine Settings")
+    st.caption("Configure how MCDM models normalize criteria scores before aggregation.")
+    
+    norm_options_dict = {
+        "default": "Library Default (Sum for WSM/WPM, Linear for WASPAS)",
+        "absolute": "Absolute Scale (Divides straight by a fixed maximum rating ceiling, e.g., 10 or 100)",
+        "linear": "Linear Max-Normalization (Scales relative to the best column score)",
+        "sum": "Sum Normalization (Scales as a proportion of the column total)"
+    }
+    
+    current_norm_mode = rating_config.get("normalization_mode", "default")
+    norm_keys = list(norm_options_dict.keys())
+    default_norm_idx = norm_keys.index(current_norm_mode) if current_norm_mode in norm_keys else 0
+    
+    selected_norm_mode = st.radio(
+        "Select Normalization Method",
+        options=norm_keys,
+        format_func=lambda x: norm_options_dict[x],
+        index=default_norm_idx,
+        key="reactive_norm_mode_radio",
+        help="Choose how raw criterion scores are scaled across alternatives."
+    )
+    
+    # Detailed Explanations for Normalization Options
+    with st.expander("ℹ️ Detailed Guide & Recommendations: Normalization Options", expanded=False):
+        st.markdown("""
+        * **Library Default**: 
+          * *What it does*: Preserves each model's native academic configuration (`sum` for WSM/WPM, `linear` for WASPAS)[cite: 1, 3].
+          * *When to use*: When you want strict adherence to standard academic literature implementations.
+        * **Absolute Scale**: 
+          * *What it does*: Treats ratings like a strict exam out of a fixed ceiling (e.g., score / 10 or score / 100)[cite: 4].
+          * *When to use*: Ideal for human 1–10 rating scales where a true absolute floor and ceiling exist. Prevents relative curves from artificially inflating poor scores.
+        * **Linear Max-Normalization**: 
+          * *What it does*: Anchors the best-performing alternative in each criterion at `1.0` and scales others proportionally relative to that maximum[cite: 4].
+          * *When to use*: Best when evaluating performance strictly relative to the market leader or best-in-class benchmark.
+        * **Sum Normalization**: 
+          * *What it does*: Divides each score by the total sum of the column, treating alternatives as holding a percentage share of the total performance pool[cite: 4].
+          * *When to use*: Best when evaluating finite resources or relative market shares.
+        """)
+    
+    # Conditional Absolute Ceiling Input
+    ceiling_val = rating_config.get("normalization_ceiling", 10.0)
+    if selected_norm_mode == "absolute":
+        st.markdown("#### ⚙️ Absolute Scale Ceiling Configuration")
+        ceiling_val = st.number_input(
+            "Enter Maximum Rating Ceiling (e.g., 10 for 1-10 scale, 100 for 1-100 scale)",
+            min_value=1.0,
+            max_value=10000.0,
+            value=float(ceiling_val),
+            step=1.0,
+            key="reactive_ceiling_input",
+            help="The maximum possible value on your rating scale."
+        )
+    
+    if st.button("💾 Save Normalization Settings", type="primary"):
+        rating_config["normalization_mode"] = selected_norm_mode
+        rating_config["normalization_ceiling"] = ceiling_val
+        save_rating_config(rating_config)
+        st.success(f"Normalization engine updated successfully! Mode: **{selected_norm_mode}**" + (f" (Ceiling: {ceiling_val})" if selected_norm_mode == "absolute" else ""))
 
 with tab_math:
     # ----------------------------------------------------
@@ -207,66 +349,6 @@ with tab_math:
                 except Exception:
                     pass
             st.success(f"WASPAS Lambda successfully saved: λ = {new_lambda}")
-
-
-with tab_weights:
-    st.subheader("Weighting Architecture & Default Initialization")
-    st.caption("Configure how criteria weights are structured and initialized across the system.")
-    
-    with st.form("weight_architecture_form"):
-        st.markdown("### 1. Weight System Architecture")
-        st.caption("Choose between a hierarchical Dual Hybrid system (Categories → Criteria) or a simplified Single Flat Weighting system.")
-        
-        current_sys_mode = rating_config.get("weight_system_mode", "Dual Hybrid (Categories & Criteria)")
-        sys_options = ["Dual Hybrid (Categories & Criteria)", "Single Flat Weighting (Direct Criteria Pool)"]
-        default_sys_idx = sys_options.index(current_sys_mode) if current_sys_mode in sys_options else 0
-        
-        selected_sys_mode = st.radio(
-            "Select Weighting System",
-            options=sys_options,
-            index=default_sys_idx,
-            help="Dual Hybrid uses high-level categories with AHP pairwise matrices. Single Flat treats all criteria in a unified flat pool."
-        )
-        
-        st.markdown("---")
-        st.markdown("### 2. Default Category Weight Initialization")
-        st.caption("Choose whether new or reset weight structures default to structured AHP Pairwise Comparisons or Direct Sliders (applicable in Dual Hybrid mode).")
-        
-        current_init_mode = rating_config.get("weight_init_mode", "🧮 AHP Pairwise Comparisons")
-        init_options = ["🧮 AHP Pairwise Comparisons", "🎛️ Direct Weight Sliders"]
-        default_init_idx = init_options.index(current_init_mode) if current_init_mode in init_options else 0
-        
-        selected_init_mode = st.selectbox(
-            "Default Weight Method", 
-            options=init_options, 
-            index=default_init_idx,
-            help="Determines how category priorities are initially constructed in the Weights Engine."
-        )
-        
-        if st.form_submit_button("💾 Save Weight System Preferences", type="primary"):
-            factors_cfg = load_factors_config()
-            existing_factors = factors_cfg.get("factors", [])
-            
-            # Check if user is trying to switch FROM Single TO Dual mode
-            is_switching_to_dual = (
-                current_sys_mode != selected_sys_mode and 
-                selected_sys_mode == "Dual Hybrid (Categories & Criteria)"
-            )
-            
-            if is_switching_to_dual and len(existing_factors) > 0:
-                st.error("⚠️ Cannot switch to Dual Hybrid mode because criteria already exist. Please go to 'Criteria Overview' and delete all criteria first before switching to Dual mode.")
-            else:
-                if selected_sys_mode == "Single Flat Weighting (Direct Criteria Pool)":
-                    ensure_ghost_category()
-                    st.success("Switched to Single Flat Weighting mode and initialized shadow category (d01)!")
-                else:
-                    remove_ghost_category()
-                    st.success("Switched to Dual Hybrid mode successfully!")
-                    
-                rating_config["weight_system_mode"] = selected_sys_mode
-                rating_config["weight_init_mode"] = selected_init_mode
-                save_rating_config(rating_config)
-                st.rerun()
 
 
 with tab_alternatives:
