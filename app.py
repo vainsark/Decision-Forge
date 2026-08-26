@@ -1,5 +1,5 @@
 """
-Multi-Criteria Decision Support System (DSS) - Executive Landing Dashboard
+Decision Support System - Executive Landing Dashboard (Decision Home)
 Interactive home dashboard summarizing system status, live decision telemetry,
 clickable end-to-end pipeline cards, and mathematical architecture.
 """
@@ -17,7 +17,7 @@ CONFIG_FILE = os.path.join(DATA_DIR, 'rating_config.json')
 
 # Default generalized metadata
 default_title = "Multi-Criteria Decision Support System"
-default_caption = "A generalized evaluation architecture integrating AHP weighting, deterministic MCDM models, Fuzzy intervals, and uncertainty propagation."
+default_caption = "A generalized evaluation architecture integrating workspace management, AHP weighting, deterministic MCDM models, Fuzzy intervals, and uncertainty propagation."
 
 project_title = default_title
 project_caption = default_caption
@@ -178,7 +178,6 @@ def get_system_telemetry():
         try:
             with open(e_path, 'r', encoding='utf-8') as f:
                 e_data = json.load(f)
-                # Supports generic keys like 'country', 'alternative', or 'option'
                 for e in e_data:
                     alt_key = next((k for k in ["country", "alternative", "option"] if k in e), None)
                     if alt_key:
@@ -265,10 +264,25 @@ st.caption("Click on any step card below to open its module directly.")
 c1, c2 = st.columns(2)
 
 with c1:
+    # STEP 0
+    with st.container(border=True):
+        st.markdown('<div class="pipeline-step">Step 0 — Workspace Control</div>', unsafe_allow_html=True)
+        st.page_link("pages/0_Decision_Hub.py", label="🗂️ 0. Decision Hub (Workspaces) ➔", use_container_width=True)
+        st.markdown("""
+        <div class="card-desc">
+            Manage your multi-project workspace collection. Switch active projects, create new independent decision models, clone workspaces, or backup/restore via ZIP archives.
+        </div>
+        <div>
+            <span class="badge">Multi-Project Isolation</span>
+            <span class="badge">ZIP Archive Backup</span>
+            <span class="badge">Active Workspace</span>
+        </div>
+        """, unsafe_allow_html=True)
+
     # STEP 1
     with st.container(border=True):
         st.markdown('<div class="pipeline-step">Step 1 — Foundation</div>', unsafe_allow_html=True)
-        st.page_link("pages/1_Factors_Overview.py", label="🗂️ 1. Factors & Category Hierarchy ➔", use_container_width=True)
+        st.page_link("pages/2_Factors_Overview.py", label="🗂️ 1. Factors & Category Hierarchy ➔", use_container_width=True)
         st.markdown("""
         <div class="card-desc">
             Explore and structure the decision hierarchy across high-level domains and granular criteria with designated Benefit (+1) and Cost (-1) properties.
@@ -283,7 +297,7 @@ with c1:
     # STEP 2
     with st.container(border=True):
         st.markdown('<div class="pipeline-step">Step 2 — Preference Calibration</div>', unsafe_allow_html=True)
-        st.page_link("pages/2_Weights_Engine.py", label="⚖️ 2. Hybrid Weights Engine ➔", use_container_width=True)
+        st.page_link("pages/3_Weights_Engine.py", label="⚖️ 2. Hybrid Weights Engine ➔", use_container_width=True)
         st.markdown("""
         <div class="card-desc">
             Calibrate high-level domain priorities using PyMCDM AHP pairwise comparisons with automated Consistency Ratio (CR &lt; 0.10) diagnostics and local scoring.
@@ -298,7 +312,7 @@ with c1:
     # STEP 3
     with st.container(border=True):
         st.markdown('<div class="pipeline-step">Step 3 — Rating & Uncertainty</div>', unsafe_allow_html=True)
-        st.page_link("pages/3_Evaluations.py", label="📝 3. Decision Matrix & Evaluations ➔", use_container_width=True)
+        st.page_link("pages/4_Evaluations.py", label="📝 3. Decision Matrix & Evaluations ➔", use_container_width=True)
         st.markdown("""
         <div class="card-desc">
             Score alternatives on central ratings (r) while modeling volatility (V) and epistemic uncertainty (E) as 4-point trapezoidal fuzzy numbers [a, b, c, d].
@@ -315,7 +329,7 @@ with c2:
     # STEP 4
     with st.container(border=True):
         st.markdown('<div class="pipeline-step">Step 4 — Multi-Model Synthesis</div>', unsafe_allow_html=True)
-        st.page_link("pages/4_MCDM_Engine.py", label="🧮 4. Multi-Model MCDM Engine ➔", use_container_width=True)
+        st.page_link("pages/5_MCDM_Engine.py", label="🧮 4. Multi-Model MCDM Engine ➔", use_container_width=True)
         st.markdown("""
         <div class="card-desc">
             Execute deterministic models (WSM, WPM, WASPAS, TOPSIS, VIKOR) alongside Fuzzy PROMETHEE to generate consensus winners and immutable historical snapshots.
@@ -330,7 +344,7 @@ with c2:
     # STEP 5
     with st.container(border=True):
         st.markdown('<div class="pipeline-step">Step 5 — Exploration & Diagnostics</div>', unsafe_allow_html=True)
-        st.page_link("pages/5_Analytics_Dashboard.py", label="📊 5. Analytics Dashboard ➔", use_container_width=True)
+        st.page_link("pages/6_Analytics_Dashboard.py", label="📊 5. Analytics Dashboard ➔", use_container_width=True)
         st.markdown("""
         <div class="card-desc">
             Deep-dive into multi-model score distributions, ranking agreements, category contribution decompositions, and comparative alternative profiles.
@@ -345,7 +359,7 @@ with c2:
     # STEP 6
     with st.container(border=True):
         st.markdown('<div class="pipeline-step">Step 6 — Stress-Testing & Verification</div>', unsafe_allow_html=True)
-        st.page_link("pages/6_Sensitivity_and_Robustness.py", label="🔬 6. Sensitivity, Robustness & Monte Carlo ➔", use_container_width=True)
+        st.page_link("pages/7_Sensitivity_and_Robustness.py", label="🔬 6. Sensitivity, Robustness & Monte Carlo ➔", use_container_width=True)
         st.markdown("""
         <div class="card-desc">
             Stress-test decisions across sensitivity dimensions, Tornado leverage rankings, critical decision boundaries, multi-level epistemic propagation, and Monte Carlo simulations.

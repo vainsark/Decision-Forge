@@ -13,21 +13,35 @@ from typing import Dict, List, Any
 from src.factors_manager import load_factors_config
 from src.evaluations import get_evaluations_filepath, load_rating_config
 from src.mcdm_methods import METHOD_REGISTRY
+from src.project_manager import get_active_project_dir
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, 'data')
-RUNS_DIR = os.path.join(DATA_DIR, 'runs')
-WEIGHTS_FILE = os.path.join(DATA_DIR, 'weights.json')
+# Dynamic path resolution functions for active project isolation
+# Dynamic path resolution functions for active project workspace isolation
+def _get_project_data_dir() -> str:
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
+
+def get_runs_dir() -> str:
+    return os.path.join(_get_project_data_dir(), 'runs')
+
+def get_weights_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), 'weights.json')
 
 def _ensure_dirs():
-    if not os.path.exists(RUNS_DIR): os.makedirs(RUNS_DIR)
+    """Ensures that the runs directory exists within the active project folder."""
+    runs_dir = get_runs_dir()
+    if not os.path.exists(runs_dir): os.makedirs(runs_dir)
 
 def _build_fuzzy_matrices() -> Dict[str, Any]:
+    """Builds fuzzy decision matrices from active project factors, weights, and evaluations."""
     factors_config = load_factors_config()
     factors = factors_config.get("factors", [])
     if not factors: raise ValueError("No factors defined.")
     
-    with open(WEIGHTS_FILE, 'r', encoding='utf-8') as f:
+    weights_file = get_weights_filepath()
+    with open(weights_file, 'r', encoding='utf-8') as f:
         weights_data = json.load(f)
     global_weights = weights_data.get("global_weights", {})
     
@@ -72,6 +86,7 @@ def _build_fuzzy_matrices() -> Dict[str, Any]:
     }
 
 def execute_fuzzy_run(method_names: List[str], run_name: str):
+    """Executes selected fuzzy MCDM methods and persists the snapshot to the active project's run directory."""
     try:
         data = _build_fuzzy_matrices()
     except ValueError as e:
@@ -131,7 +146,7 @@ def execute_fuzzy_run(method_names: List[str], run_name: str):
     }
     
     _ensure_dirs()
-    save_path = os.path.join(RUNS_DIR, f"{run_id}.json")
+    save_path = os.path.join(get_runs_dir(), f"{run_id}.json")
     with open(save_path, 'w', encoding='utf-8') as f:
         json.dump(run_snapshot, f, indent=4)
         

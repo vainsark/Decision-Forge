@@ -10,13 +10,25 @@ from typing import Dict, List, Any, Tuple
 from tabulate import tabulate
 
 from src.factors_manager import load_factors_config
+from src.project_manager import get_active_project_dir
 
 # ==========================================
 # FILE PATHS & CONSTANTS
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, 'data')
-RATING_CONFIG_FILE = os.path.join(DATA_DIR, 'rating_config.json')
+
+# Dynamic path resolution functions for active project workspace isolation
+def _get_project_data_dir() -> str:
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
+
+def get_rating_config_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), 'rating_config.json')
+
+def get_evaluations_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), 'evaluations.json')
 
 # ANSI Colors for CLI
 C_RED = '\033[91m'
@@ -30,38 +42,44 @@ C_RESET = '\033[0m'
 # CONFIGURATION MANAGEMENT
 # ==========================================
 def _ensure_data_dir():
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
+    proj_dir = _get_project_data_dir()
+    if not os.path.exists(proj_dir):
+        os.makedirs(proj_dir)
 
 def load_rating_config() -> Dict[str, Any]:
     """Loads the dynamic rating coefficients and countries."""
     _ensure_data_dir()
+    rating_config_path = get_rating_config_filepath()
     default_config = {
         "countries": ["Israel", "Prague"],
         "coefficients": {
             "Kv": 0.5,
             "Ke": 0.5,
             "Kb": 1.0
-        }
+        },
+        "promethee_q": 0.5,
+        "promethee_p": 3.5,
+        "promethee_pref_func": "vshape_2",
+        "normalization_mode": "default",
+        "normalization_ceiling": 10.0,
+        "waspas_lambda": 0.5
     }
     
-    if os.path.exists(RATING_CONFIG_FILE):
-        with open(RATING_CONFIG_FILE, 'r', encoding='utf-8') as f:
+    if os.path.exists(rating_config_path):
+        with open(rating_config_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
             # Merge defaults for any missing keys
             default_config.update(data)
             return default_config
             
-    with open(RATING_CONFIG_FILE, 'w', encoding='utf-8') as f:
+    with open(rating_config_path, 'w', encoding='utf-8') as f:
         json.dump(default_config, f, indent=4)
     return default_config
 
 def save_rating_config(config: Dict[str, Any]):
-    with open(RATING_CONFIG_FILE, 'w', encoding='utf-8') as f:
+    rating_config_path = get_rating_config_filepath()
+    with open(rating_config_path, 'w', encoding='utf-8') as f:
         json.dump(config, f, indent=4)
-
-def get_evaluations_filepath() -> str:
-    return os.path.join(DATA_DIR, 'evaluations.json')
 
 # ==========================================
 # MATHEMATICAL CORE: TRAPEZOID CONSTRUCTION

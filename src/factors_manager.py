@@ -10,16 +10,32 @@ import numpy as np
 from typing import Dict, Any
 from tabulate import tabulate
 
+from src.project_manager import get_active_project_dir
+
 # Define paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, 'data')
-FACTORS_FILE = os.path.join(DATA_DIR, 'factors_config.json')
-WEIGHTS_FILE = os.path.join(DATA_DIR, 'weights.json')
+
+# Dynamic path resolution functions for active project workspace isolation
+def _get_project_data_dir() -> str:
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
+
+def get_factors_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), 'factors_config.json')
+
+def get_weights_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), 'weights.json')
+
+def get_evaluations_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), 'evaluations.json')
 
 def load_factors_config() -> Dict[str, Any]:
-    if not os.path.exists(FACTORS_FILE):
+    factors_file = get_factors_filepath()
+    if not os.path.exists(factors_file):
         return {"domains": [], "factors": []}
-    with open(FACTORS_FILE, 'r', encoding='utf-8') as f:
+    with open(factors_file, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 def save_factors_config(config: Dict[str, Any]):
@@ -29,8 +45,10 @@ def save_factors_config(config: Dict[str, Any]):
     if "factors" in config:
         config["factors"] = sorted(config["factors"], key=lambda x: x["id"])
         
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(FACTORS_FILE, 'w', encoding='utf-8') as f:
+    proj_dir = _get_project_data_dir()
+    os.makedirs(proj_dir, exist_ok=True)
+    factors_file = get_factors_filepath()
+    with open(factors_file, 'w', encoding='utf-8') as f:
         json.dump(config, f, indent=4)
 
 # ==========================================
@@ -58,13 +76,14 @@ def ensure_ghost_category():
         
     save_factors_config(config)
     
-    if os.path.exists(WEIGHTS_FILE):
+    weights_file = get_weights_filepath()
+    if os.path.exists(weights_file):
         try:
-            with open(WEIGHTS_FILE, 'r', encoding='utf-8') as wf:
+            with open(weights_file, 'r', encoding='utf-8') as wf:
                 w_data = json.load(wf)
             w_data["category_weights"] = {"d01": 1.0}
             w_data["domain_ids"] = [d["id"] for d in config.get("domains", [])]
-            with open(WEIGHTS_FILE, 'w', encoding='utf-8') as wf:
+            with open(weights_file, 'w', encoding='utf-8') as wf:
                 json.dump(w_data, wf, indent=4)
         except Exception:
             pass
@@ -80,14 +99,15 @@ def remove_ghost_category():
         save_factors_config(config)
         
         # Purge weights.json flat-mode residues
-        if os.path.exists(WEIGHTS_FILE):
+        weights_file = get_weights_filepath()
+        if os.path.exists(weights_file):
             try:
-                with open(WEIGHTS_FILE, 'r', encoding='utf-8') as wf:
+                with open(weights_file, 'r', encoding='utf-8') as wf:
                     w_data = json.load(wf)
                 w_data["category_weights"] = {}
                 w_data["domain_ids"] = []
                 w_data["ahp_matrix"] = []
-                with open(WEIGHTS_FILE, 'w', encoding='utf-8') as wf:
+                with open(weights_file, 'w', encoding='utf-8') as wf:
                     json.dump(w_data, wf, indent=4)
             except Exception:
                 pass
@@ -153,15 +173,16 @@ def add_criterion(domain_id: str, name: str, description: str, type_val: int, sh
 # CASCADING DELETION LOGIC (SAFE ID PATCHING)
 # ==========================================
 def _rebuild_and_cascade_ids(config: Dict[str, Any], deleted_domain_id: str = None, deleted_factor_id: str = None):
-    EVALUATIONS_FILE = os.path.join(DATA_DIR, 'evaluations.json')
+    weights_file = get_weights_filepath()
+    evaluations_file = get_evaluations_filepath()
     
     weights = {"category_weights": {}, "local_weights": {}, "global_weights": {}, "raw_ratings": {}, "ahp_matrix": [], "domain_ids": []}
-    if os.path.exists(WEIGHTS_FILE):
-        with open(WEIGHTS_FILE, 'r', encoding='utf-8') as f: weights = json.load(f)
+    if os.path.exists(weights_file):
+        with open(weights_file, 'r', encoding='utf-8') as f: weights = json.load(f)
             
     evals = []
-    if os.path.exists(EVALUATIONS_FILE):
-        with open(EVALUATIONS_FILE, 'r', encoding='utf-8') as f: evals = json.load(f)
+    if os.path.exists(evaluations_file):
+        with open(evaluations_file, 'r', encoding='utf-8') as f: evals = json.load(f)
 
     saved_matrix = weights.get("ahp_matrix", [])
     saved_domain_ids = weights.get("domain_ids", [])
@@ -262,12 +283,12 @@ def _rebuild_and_cascade_ids(config: Dict[str, Any], deleted_domain_id: str = No
         global_weights[f["id"]] = c_w * l_w
     weights["global_weights"] = global_weights
         
-    with open(WEIGHTS_FILE, 'w', encoding='utf-8') as f: json.dump(weights, f, indent=4)
+    with open(weights_file, 'w', encoding='utf-8') as f: json.dump(weights, f, indent=4)
         
-    if os.path.exists(EVALUATIONS_FILE):
+    if os.path.exists(evaluations_file):
         for e in evals:
             if e["criterion_id"] in old_to_new_f: e["criterion_id"] = old_to_new_f[e["criterion_id"]]
-        with open(EVALUATIONS_FILE, 'w', encoding='utf-8') as f: json.dump(evals, f, indent=4)
+        with open(evaluations_file, 'w', encoding='utf-8') as f: json.dump(evals, f, indent=4)
 
 def delete_domain(domain_id: str):
     config = load_factors_config()

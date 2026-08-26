@@ -16,22 +16,50 @@ if BASE_DIR not in sys.path:
 
 from src.evaluations import calculate_trapezoid
 from src.factors_manager import load_factors_config, ensure_ghost_category, remove_ghost_category
+from src.project_manager import get_active_project_dir
+from src.project_manager import get_active_project_id
+
 try:
     from src.mcdm_engine import load_engine_config, save_engine_config
 except ImportError:
     load_engine_config = None
     save_engine_config = None
 
-RATING_CONFIG_FILE = os.path.join(BASE_DIR, 'data', 'rating_config.json')
-EVALUATIONS_FILE = os.path.join(BASE_DIR, 'data', 'evaluations.json')
+# ==========================================
+# DYNAMIC PATH RESOLUTION FOR MULTI-PROJECTS
+# ==========================================
+def _get_project_data_dir() -> str:
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
+
+def get_rating_config_filepath() -> str:
+    """Returns the path to the rating configuration file for the active project."""
+    return os.path.join(_get_project_data_dir(), 'rating_config.json')
+
+def get_evaluations_filepath() -> str:
+    """Returns the path to the evaluations file for the active project."""
+    return os.path.join(_get_project_data_dir(), 'evaluations.json')
 
 st.set_page_config(page_title="Global Settings", page_icon="⚙️", layout="wide")
 st.title("⚙️ Global System Settings")
 st.caption("Configure global fuzzy parameters, weighting architecture, normalization engines, and active decision alternatives.")
 
+# ==========================================
+# ACTIVE PROJECT GUARD (PASTE HERE)
+# ==========================================
+active_proj_id = get_active_project_id()
+if not active_proj_id:
+    st.warning("⚠️ **No Active Project Selected.** Please go to the **Decision Hub** to create or open a project workspace.")
+    if st.button("🗂️ Go to Decision Hub", type="primary"):
+        st.switch_page("pages/0_Decision_Hub.py")
+    st.stop()
+
 # Load config with backward compatibility for legacy keys
+rating_config_file = get_rating_config_filepath()
 try:
-    with open(RATING_CONFIG_FILE, 'r', encoding='utf-8') as f:
+    with open(rating_config_file, 'r', encoding='utf-8') as f:
         rating_config = json.load(f)
         if "alternatives" not in rating_config and "countries" in rating_config:
             rating_config["alternatives"] = rating_config.pop("countries")
@@ -50,13 +78,16 @@ except FileNotFoundError:
     }
 
 def save_rating_config(config):
-    with open(RATING_CONFIG_FILE, 'w', encoding='utf-8') as f:
+    """Saves rating configuration to the active project workspace."""
+    with open(get_rating_config_filepath(), 'w', encoding='utf-8') as f:
         json.dump(config, f, indent=4)
 
 def recalculate_all_evaluations(coeffs):
-    if not os.path.exists(EVALUATIONS_FILE): 
+    """Recalculates all evaluations in the active project using updated coefficients."""
+    evals_file = get_evaluations_filepath()
+    if not os.path.exists(evals_file): 
         return
-    with open(EVALUATIONS_FILE, 'r', encoding='utf-8') as f:
+    with open(evals_file, 'r', encoding='utf-8') as f:
         evals = json.load(f)
         
     for ev in evals:
@@ -64,8 +95,9 @@ def recalculate_all_evaluations(coeffs):
         ev['trapezoid'] = trap
         ev['coefficients'] = coeffs
         
-    with open(EVALUATIONS_FILE, 'w', encoding='utf-8') as f:
+    with open(evals_file, 'w', encoding='utf-8') as f:
         json.dump(evals, f, indent=4)
+
 
 # ==========================================
 # UI TABS (General & Weights is now 1st!)

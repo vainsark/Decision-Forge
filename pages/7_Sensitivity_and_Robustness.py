@@ -23,17 +23,41 @@ from src.analysis.robustness import RobustnessEngine
 from src.analysis.epistemic import EpistemicEngine, generate_discrete_grid
 from src.analysis.monte_carlo import MonteCarloEngine
 from src.mcdm_methods import METHOD_REGISTRY
+from src.project_manager import get_active_project_dir
+from src.project_manager import get_active_project_id
+
+
+# Dynamic path resolution functions for active project workspace isolation
+def _get_project_data_dir() -> str:
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
+
+def get_rating_config_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), 'rating_config.json')
 
 st.set_page_config(page_title="Sensitivity & Robustness", page_icon="🔬", layout="wide")
 st.title("🔬 Sensitivity & Robustness Engine")
 st.caption("Probe model stability, test factor leverage, propagate epistemic uncertainty, and simulate stochastic win probabilities.")
 
-RATING_CONFIG_FILE = os.path.join(BASE_DIR, 'data', 'rating_config.json')
+# ==========================================
+# ACTIVE PROJECT GUARD
+# ==========================================
+active_proj_id = get_active_project_id()
+if not active_proj_id:
+    st.warning("⚠️ **No Active Project Selected.** Please go to the **Decision Hub** to create or open a project workspace.")
+    if st.button("🗂️ Go to Decision Hub", type="primary"):
+        st.switch_page("pages/0_Decision_Hub.py")
+    st.stop()
+
+RATING_CONFIG_FILE = get_rating_config_filepath()
 
 def get_weight_system_mode() -> str:
-    if os.path.exists(RATING_CONFIG_FILE):
+    config_file = get_rating_config_filepath()
+    if os.path.exists(config_file):
         try:
-            with open(RATING_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:
                 cfg = json.load(f)
                 return cfg.get("weight_system_mode", "Dual Hybrid (Categories & Criteria)")
         except Exception:
@@ -396,7 +420,7 @@ def plot_mc_advantage_histogram(advantage_subsample: list, countries: list, meth
 # =========================================================================
 runs = AnalysisDispatcher.list_saved_runs()
 if not runs:
-    st.warning("⚠️ No saved runs found in `data/runs/`. Please execute and save a baseline run in Option 4 first.")
+    st.warning("⚠️ No saved runs found in this project's runs directory. Please execute and save a baseline run first.")
     st.stop()
 
 run_options = {

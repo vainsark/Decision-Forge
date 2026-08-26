@@ -67,7 +67,7 @@ class WPM_Method(BaseMCDM):
 class WASPAS_Method(BaseMCDM):
     name = "WASPAS"
     def execute(self, matrix, weights, types, parameters):
-        lmbd = parameters.get("WASPAS_lambda", 0.5)
+        lmbd = parameters.get("WASPAS_lambda", parameters.get("waspas_lambda", 0.5))
         norm_func = _get_normalization_function(linear_normalization)
         scores = WASPAS(normalization_function=norm_func, l=lmbd)(matrix, weights, types)
         ranking = rankdata(scores, reverse=True)

@@ -19,14 +19,21 @@ ENV/
 .streamlit/
 
 # Tests
-test2.py
-ulti_test.py
 src/analysis/test_analysis_suite.py
 
-# Ignore generated MCDM baseline runs and sensitivity runs
+# ==========================================
+# MULTI-PROJECT & RUNTIME DATA IGNORING
+# ==========================================
+# Ignore all user-created project workspaces
+data/projects/*
+!data/projects/.gitkeep
+
+# Ignore legacy or root-level fallback folders
 data/runs/*
 data/analysis_runs/*
+data/evaluation_presets/*
+data/weight_presets/*
 
-# Ensure the directories themselves are tracked
+# Ensure core directory structures stay tracked if desired
 !data/runs/.gitkeep
 !data/analysis_runs/.gitkeep

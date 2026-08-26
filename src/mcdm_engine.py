@@ -14,16 +14,29 @@ from tabulate import tabulate
 from src.factors_manager import load_factors_config
 from src.evaluations import get_evaluations_filepath
 from src.mcdm_methods import METHOD_REGISTRY
+from src.project_manager import get_active_project_dir
 
 # ==========================================
-# FILE PATHS & CONSTANTS
+# DYNAMIC FILE PATHS & CONSTANTS
 # ==========================================
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, 'data')
-RUNS_DIR = os.path.join(DATA_DIR, 'runs')
-ENGINE_CONFIG_FILE = os.path.join(DATA_DIR, 'mcdm_config.json')
-RATING_CONFIG_FILE = os.path.join(DATA_DIR, 'rating_config.json')
-WEIGHTS_FILE = os.path.join(DATA_DIR, 'weights.json')
+# Dynamic path resolution functions for active project workspace isolation
+def _get_project_data_dir() -> str:
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
+
+def get_runs_dir() -> str:
+    """Returns the runs directory path inside the active project folder."""
+    return os.path.join(_get_project_data_dir(), 'runs')
+
+def get_rating_config_filepath() -> str:
+    """Returns the path to the rating configuration file for the active project."""
+    return os.path.join(_get_project_data_dir(), 'rating_config.json')
+
+def get_weights_filepath() -> str:
+    """Returns the path to the weights file for the active project."""
+    return os.path.join(_get_project_data_dir(), 'weights.json')
 
 C_RED = '\033[91m'
 C_GREEN = '\033[92m'
@@ -36,11 +49,16 @@ C_RESET = '\033[0m'
 # CONFIG & STATE MANAGEMENT
 # ==========================================
 def _ensure_dirs():
-    if not os.path.exists(DATA_DIR): os.makedirs(DATA_DIR)
-    if not os.path.exists(RUNS_DIR): os.makedirs(RUNS_DIR)
+    """Ensures that the project directories and runs subfolder exist."""
+    proj_dir = _get_project_data_dir()
+    runs_dir = get_runs_dir()
+    if not os.path.exists(proj_dir): os.makedirs(proj_dir)
+    if not os.path.exists(runs_dir): os.makedirs(runs_dir)
 
 def load_engine_config() -> Dict[str, Any]:
+    """Loads engine configuration parameters from the active project's rating config."""
     _ensure_dirs()
+    rating_config_file = get_rating_config_filepath()
     default_config = {
         "waspas_lambda": 0.5,
         "promethee_q": 0.5,
@@ -49,38 +67,42 @@ def load_engine_config() -> Dict[str, Any]:
         "normalization_mode": "default",
         "normalization_ceiling": 10.0
     }
-    if os.path.exists(RATING_CONFIG_FILE):
-        with open(RATING_CONFIG_FILE, 'r', encoding='utf-8') as f:
+    if os.path.exists(rating_config_file):
+        with open(rating_config_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             default_config.update(data)
             return default_config
             
-    with open(RATING_CONFIG_FILE, 'w', encoding='utf-8') as f:
+    with open(rating_config_file, 'w', encoding='utf-8') as f:
         json.dump(default_config, f, indent=4)
     return default_config
 
 def save_engine_config(config: Dict[str, Any]):
+    """Saves engine configuration parameters to the active project's rating config."""
     _ensure_dirs()
-    if os.path.exists(RATING_CONFIG_FILE):
-        with open(RATING_CONFIG_FILE, 'r', encoding='utf-8') as f:
+    rating_config_file = get_rating_config_filepath()
+    if os.path.exists(rating_config_file):
+        with open(rating_config_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
     else:
         data = {}
     data.update(config)
-    with open(RATING_CONFIG_FILE, 'w', encoding='utf-8') as f:
+    with open(rating_config_file, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4)
 
 # ==========================================
 # ENGINE DATA BUILDER & VALIDATION
 # ==========================================
 def _validate_and_build_matrices() -> Dict[str, Any]:
+    """Validates factors, weights, and evaluations for the active project, building matrices for execution."""
     factors_config = load_factors_config()
     factors = factors_config.get("factors", [])
     if not factors: raise ValueError("No factors defined in factors_config.json")
     
-    if not os.path.exists(WEIGHTS_FILE):
-        raise ValueError("Weights data missing. Please go to Option 2 and complete the Weight Engine.")
-    with open(WEIGHTS_FILE, 'r', encoding='utf-8') as f:
+    weights_file = get_weights_filepath()
+    if not os.path.exists(weights_file):
+        raise ValueError("Weights data missing. Please complete the Weight Engine.")
+    with open(weights_file, 'r', encoding='utf-8') as f:
         weights_data = json.load(f)
     global_weights = weights_data.get("global_weights", {})
     
@@ -95,14 +117,14 @@ def _validate_and_build_matrices() -> Dict[str, Any]:
     
     eval_path = get_evaluations_filepath()
     if not os.path.exists(eval_path):
-        raise ValueError("Evaluations missing. Please go to Option 3 and complete the Rating System.")
+        raise ValueError("Evaluations missing. Please complete the Rating System.")
     with open(eval_path, 'r', encoding='utf-8') as f:
         evaluations = json.load(f)
         
     countries = list(set([e["country"] for e in evaluations]))
     countries.sort()
     if len(countries) < 2:
-        raise ValueError("Need evaluations for at least two countries to run MCDM.")
+        raise ValueError("Need evaluations for at least two alternatives/countries to run MCDM.")
 
     c_ids = [f["id"] for f in factors]
     matrix = np.zeros((len(countries), len(factors)))
@@ -125,7 +147,7 @@ def _validate_and_build_matrices() -> Dict[str, Any]:
             
     w_sum = np.sum(weights_arr)
     if w_sum <= 0:
-        raise ValueError("Weights sum to 0. Please recalculate weights in Option 2.")
+        raise ValueError("Weights sum to 0. Please recalculate weights.")
     weights_arr = weights_arr / w_sum
             
     return {
@@ -145,6 +167,7 @@ def _validate_and_build_matrices() -> Dict[str, Any]:
 # EXECUTION (WITH FULL SNAPSHOT PERSISTENCE)
 # ==========================================
 def execute_run(method_names: List[str], run_name: str):
+    """Executes selected deterministic MCDM methods and saves the run snapshot to the active project folder."""
     print(f"\n{C_YELLOW}Validating inputs and building decision matrices...{C_RESET}")
     try:
         data = _validate_and_build_matrices()
@@ -154,7 +177,8 @@ def execute_run(method_names: List[str], run_name: str):
         
     config = load_engine_config()
     parameters = {
-        "waspas_lambda": config.get("waspas_lambda", config.get("waspas_lambda", 0.5)),
+        "waspas_lambda": config.get("waspas_lambda", config.get("WASPAS_lambda", 0.5)),
+        "WASPAS_lambda": config.get("waspas_lambda", config.get("WASPAS_lambda", 0.5)),
         "promethee_q": float(config.get("promethee_q", 0.1)),
         "promethee_p": float(config.get("promethee_p", 6.0)),
         "promethee_pref_func": config.get("promethee_pref_func", "vshape_2")
@@ -203,7 +227,7 @@ def execute_run(method_names: List[str], run_name: str):
     }
     
     _ensure_dirs()
-    save_path = os.path.join(RUNS_DIR, f"{run_id}.json")
+    save_path = os.path.join(get_runs_dir(), f"{run_id}.json")
     with open(save_path, 'w', encoding='utf-8') as f:
         json.dump(run_snapshot, f, indent=4)
         
@@ -214,6 +238,7 @@ def execute_run(method_names: List[str], run_name: str):
 # RESULT VIEWING & COMPARING
 # ==========================================
 def display_run_results(run_data: Dict[str, Any]):
+    """Displays structured result tables and agreement scores for a run."""
     print(f"\n{C_BLUE}" + "="*80)
     print(f" RESULTS: {C_BOLD}{run_data['name']}{C_RESET} ({run_data['timestamp'][:16].replace('T', ' ')})")
     print("="*80 + f"{C_RESET}")
@@ -281,12 +306,13 @@ def display_run_results(run_data: Dict[str, Any]):
             pct = (wins / total_successful) * 100
             summary_table.append([c, wins, f"{pct:.1f}%"])
         summary_table.sort(key=lambda x: x[1], reverse=True)
-        print(tabulate(summary_table, headers=["Country", "1st Place Ranks", "% Agreement"], tablefmt="simple"))
+        print(tabulate(summary_table, headers=["Country/Alternative", "1st Place Ranks", "% Agreement"], tablefmt="simple"))
     else:
         print(f"{C_YELLOW}No deterministic runs completed successfully.{C_RESET}")
     print()
 
 def compare_multiple_runs(runs_to_compare: List[Dict[str, Any]]):
+    """Compares multiple saved run snapshots side-by-side."""
     print(f"\n{C_BLUE}" + "="*90)
     print(f" COMPARING {len(runs_to_compare)} SAVED RUNS")
     print("="*90 + f"{C_RESET}")
@@ -344,12 +370,13 @@ def compare_multiple_runs(runs_to_compare: List[Dict[str, Any]]):
 # CLI MENUS
 # ==========================================
 def configure_parameters_cli():
+    """CLI screen for editing engine configuration parameters."""
     config = load_engine_config()
     while True:
         print(f"\n{C_BLUE}" + "="*50)
         print(" ENGINE PARAMETERS")
         print("="*50 + f"{C_RESET}")
-        print(f"1. WASPAS Lambda: {config['parameters']['waspas_lambda']} (0=WPM, 1=WSM, 0.5=Equal)")
+        print(f"1. WASPAS Lambda: {config.get('waspas_lambda', 0.5)} (0=WPM, 1=WSM, 0.5=Equal)")
         print("b. Back")
         
         choice = input("\nEnter choice: ").strip().lower()
@@ -358,7 +385,7 @@ def configure_parameters_cli():
             try:
                 val = float(input("Enter new Lambda (0.0 to 1.0): "))
                 if 0.0 <= val <= 1.0:
-                    config['parameters']['waspas_lambda'] = val
+                    config['waspas_lambda'] = val
                     save_engine_config(config)
                     print(f"{C_GREEN}Updated successfully.{C_RESET}")
                 else:
@@ -367,6 +394,7 @@ def configure_parameters_cli():
                 print(f"{C_RED}Invalid number.{C_RESET}")
 
 def run_models_cli():
+    """CLI menu for executing MCDM models."""
     while True:
         print(f"\n{C_BLUE}" + "="*50)
         print(" RUN MCDM MODELS")
@@ -417,13 +445,16 @@ def run_models_cli():
             display_run_results(snapshot)
 
 def saved_runs_cli():
+    """CLI manager for browsing, viewing, comparing, and deleting saved run records."""
     _ensure_dirs()
+    runs_dir = get_runs_dir()
     while True:
         runs = []
-        for file in os.listdir(RUNS_DIR):
-            if file.endswith('.json'):
-                with open(os.path.join(RUNS_DIR, file), 'r', encoding='utf-8') as f:
-                    runs.append(json.load(f))
+        if os.path.exists(runs_dir):
+            for file in os.listdir(runs_dir):
+                if file.endswith('.json'):
+                    with open(os.path.join(runs_dir, file), 'r', encoding='utf-8') as f:
+                        runs.append(json.load(f))
                     
         runs.sort(key=lambda x: x["timestamp"], reverse=True)
         
@@ -432,7 +463,7 @@ def saved_runs_cli():
         print("="*80 + f"{C_RESET}")
         
         if not runs:
-            print(f"{C_YELLOW}No saved runs found.{C_RESET}")
+            print(f"{C_YELLOW}No saved runs found in this project.{C_RESET}")
             return
             
         table = []
@@ -458,7 +489,7 @@ def saved_runs_cli():
                 idx = int(choice.split()[1]) - 1
                 if 0 <= idx < len(runs):
                     target_id = runs[idx]["run_id"]
-                    os.remove(os.path.join(RUNS_DIR, f"{target_id}.json"))
+                    os.remove(os.path.join(runs_dir, f"{target_id}.json"))
                     print(f"{C_GREEN}Run deleted.{C_RESET}")
             except:
                 print(f"{C_RED}Invalid delete command.{C_RESET}")
@@ -485,6 +516,7 @@ def saved_runs_cli():
                 pass
 
 def run_mcdm_cli():
+    """Main CLI menu for the MCDM Engine & Orchestrator."""
     while True:
         print(f"\n{C_BLUE}" + "="*50)
         print("  MCDM ENGINE & ORCHESTRATOR")

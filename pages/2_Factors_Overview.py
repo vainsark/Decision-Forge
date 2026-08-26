@@ -24,18 +24,42 @@ from src.factors_manager import (
     ensure_ghost_category, 
     remove_ghost_category
 )
+from src.project_manager import get_active_project_dir
+from src.project_manager import get_active_project_id
 
-RATING_CONFIG_FILE = os.path.join(BASE_DIR, 'data', 'rating_config.json')
+# Dynamic path helper for the active project workspace
+def get_rating_config_filepath() -> str:
+    """Returns the path to the rating configuration file for the active project."""
+    proj_dir = get_active_project_dir()
+    if not proj_dir:
+        return ""  # Safe fallback if no project is active yet
+    return os.path.join(proj_dir, 'rating_config.json')
 
 def get_weight_system_mode() -> str:
-    if os.path.exists(RATING_CONFIG_FILE):
+    """Loads the active project's weight system mode configuration."""
+    config_path = get_rating_config_filepath()
+    if os.path.exists(config_path):
         try:
-            with open(RATING_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            with open(config_path, 'r', encoding='utf-8') as f:
                 cfg = json.load(f)
                 return cfg.get("weight_system_mode", "Dual Hybrid (Categories & Criteria)")
         except Exception:
             pass
     return "Dual Hybrid (Categories & Criteria)"
+
+
+st.set_page_config(page_title="Criteria Overview", page_icon="📋", layout="wide")
+st.title("📋 Decision Criteria & Hierarchy")
+
+# ==========================================
+# ACTIVE PROJECT GUARD (PASTE HERE)
+# ==========================================
+active_proj_id = get_active_project_id()
+if not active_proj_id:
+    st.warning("⚠️ **No Active Project Selected.** Please go to the **Decision Hub** to create or open a project workspace.")
+    if st.button("🗂️ Go to Decision Hub", type="primary"):
+        st.switch_page("pages/0_Decision_Hub.py")
+    st.stop()
 
 weight_system_mode = get_weight_system_mode()
 is_flat_mode = (weight_system_mode == "Single Flat Weighting (Direct Criteria Pool)")
@@ -48,8 +72,7 @@ if is_flat_mode:
 else:
     remove_ghost_category()
 
-st.set_page_config(page_title="Criteria Overview", page_icon="📋", layout="wide")
-st.title("📋 Decision Criteria & Hierarchy")
+
 
 if is_flat_mode:
     st.caption("Active Architecture: **Single Flat Weighting**. Criteria are managed in a unified flat pool.")

@@ -20,23 +20,39 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from src.factors_manager import load_factors_config
+from src.project_manager import get_active_project_dir
 
 # ==========================================
-# FILE PATHS & PYMCDM CONSTANTS
+# DYNAMIC FILE PATHS & PYMCDM CONSTANTS
 # ==========================================
-DATA_DIR = os.path.join(BASE_DIR, 'data')
+# Dynamic path resolution functions for active project workspace isolation
+def _get_project_data_dir() -> str:
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
 
-AHP_FILE = os.path.join(DATA_DIR, 'ahp_matrices.json')
-RATINGS_FILE = os.path.join(DATA_DIR, 'criteria_ratings.json')
-WEIGHTS_FILE = os.path.join(DATA_DIR, 'weights.json')
+def get_ahp_filepath() -> str:
+    """Returns the path to the AHP matrix file for the active project."""
+    return os.path.join(_get_project_data_dir(), 'ahp_matrices.json')
+
+def get_ratings_filepath() -> str:
+    """Returns the path to the criteria ratings file for the active project."""
+    return os.path.join(_get_project_data_dir(), 'criteria_ratings.json')
+
+def get_weights_filepath() -> str:
+    """Returns the path to the weights calculation bundle for the active project."""
+    return os.path.join(_get_project_data_dir(), 'weights.json')
 
 # PyMCDM strictly enforces these exact floats for fractions
 # Create the exact mathematical floats PyMCDM demands (e.g. 0.3333333333333333 instead of 0.33)
 EXACT_AHP_VALUES = [float(x) for x in range(1, 10)] + [1.0 / x for x in range(2, 10)]
 
 def _ensure_data_dir():
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
+    """Ensures that the active project directory exists on the file system."""
+    proj_dir = _get_project_data_dir()
+    if not os.path.exists(proj_dir):
+        os.makedirs(proj_dir)
 
 def _sanitize_ahp_value(val: float) -> float:
     """Snaps any float to the exact PyMCDM mathematical AHP floats to prevent ValueError crashes."""
@@ -45,11 +61,13 @@ def _sanitize_ahp_value(val: float) -> float:
 def _parse_input_value(val_str: str) -> float:
     """Parses fractions or numbers and strictly sanitizes them for PyMCDM."""
     try:
+        # Check if user entered a fraction (e.g., '1/3')
         if '/' in val_str:
             num, den = val_str.split('/')
             val = float(num) / float(den)
         else:
             val = float(val_str)
+        # Snap to exact allowed AHP float values
         return _sanitize_ahp_value(val)
     except ValueError:
         raise ValueError("Invalid format. Enter a number (e.g., 5) or fraction (e.g., 1/3).")
@@ -61,9 +79,11 @@ def load_ahp_matrix(domains: List[Dict]) -> np.ndarray:
     """Loads AHP matrix or triggers interactive creation using PyMCDM structures."""
     n = len(domains)
     _ensure_data_dir()
+    ahp_file = get_ahp_filepath()
     
-    if os.path.exists(AHP_FILE):
-        with open(AHP_FILE, 'r', encoding='utf-8') as f:
+    # Check if the active project already has a saved AHP matrix file
+    if os.path.exists(ahp_file):
+        with open(ahp_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             if "domain_matrix" in data:
                 mat = np.array(data["domain_matrix"])
@@ -84,13 +104,15 @@ def load_ahp_matrix(domains: List[Dict]) -> np.ndarray:
     mat = getattr(ahp_model, 'matrix', getattr(ahp_model, '_matrix', None))
     if mat is None:
         # Failsafe dump to CSV if attributes are locked
-        temp_csv = os.path.join(DATA_DIR, 'temp_ahp.csv')
+        proj_dir = _get_project_data_dir()
+        temp_csv = os.path.join(proj_dir, 'temp_ahp.csv')
         ahp_model.to_csv(temp_csv)
         mat = np.loadtxt(temp_csv, delimiter=',')
         if os.path.exists(temp_csv):
             os.remove(temp_csv)
             
-    with open(AHP_FILE, 'w', encoding='utf-8') as f:
+    # Persist the newly generated matrix to the active project folder
+    with open(ahp_file, 'w', encoding='utf-8') as f:
          json.dump({"domain_matrix": mat.tolist()}, f, indent=4)
          
     return mat
@@ -100,9 +122,11 @@ def load_criteria_ratings(config: Dict[str, Any]) -> Dict[str, float]:
     _ensure_data_dir()
     factors = config.get("factors", [])
     expected_fids = [f["id"] for f in factors]
+    ratings_file = get_ratings_filepath()
     
-    if os.path.exists(RATINGS_FILE):
-        with open(RATINGS_FILE, 'r', encoding='utf-8') as f:
+    # Check if criteria ratings file exists for this project
+    if os.path.exists(ratings_file):
+        with open(ratings_file, 'r', encoding='utf-8') as f:
             ratings = json.load(f)
             
         # Check if any new factors were added to config but are missing from saved ratings
@@ -111,7 +135,7 @@ def load_criteria_ratings(config: Dict[str, Any]) -> Dict[str, float]:
             for fid in missing_keys:
                 ratings[fid] = 5.0  # Assign a safe default rating of 5.0 for new factors
             # Resave the repaired file
-            with open(RATINGS_FILE, 'w', encoding='utf-8') as f:
+            with open(ratings_file, 'w', encoding='utf-8') as f:
                 json.dump(ratings, f, indent=4)
                 
         return ratings
@@ -123,6 +147,7 @@ def load_criteria_ratings(config: Dict[str, Any]) -> Dict[str, float]:
     print(" INITIAL CRITERIA RATINGS SETUP (1-10)")
     print("="*50 + "\033[0m")
     
+    # Loop through each domain and prompt user for initial criteria ratings
     for domain in config.get("domains", []):
         print(f"\n--- {domain['name']} ---")
         domain_factors = [f for f in factors if f["domain_id"] == domain["id"]]
@@ -141,18 +166,20 @@ def load_criteria_ratings(config: Dict[str, Any]) -> Dict[str, float]:
                 except ValueError:
                     print("Invalid number format.")
                     
-    with open(RATINGS_FILE, 'w', encoding='utf-8') as f:
+    # Save initialized ratings to active project storage
+    with open(ratings_file, 'w', encoding='utf-8') as f:
         json.dump(ratings, f, indent=4)
         
     return ratings
 
 def save_state(matrix: np.ndarray, ratings: Dict[str, float], weights: Dict[str, Any]):
+    """Persists the AHP matrix, criteria ratings, and weight bundles to project files."""
     _ensure_data_dir()
-    with open(AHP_FILE, 'w', encoding='utf-8') as f:
+    with open(get_ahp_filepath(), 'w', encoding='utf-8') as f:
         json.dump({"domain_matrix": matrix.tolist()}, f, indent=4)
-    with open(RATINGS_FILE, 'w', encoding='utf-8') as f:
+    with open(get_ratings_filepath(), 'w', encoding='utf-8') as f:
         json.dump(ratings, f, indent=4)
-    with open(WEIGHTS_FILE, 'w', encoding='utf-8') as f:
+    with open(get_weights_filepath(), 'w', encoding='utf-8') as f:
         json.dump(weights, f, indent=4)
 
 # ==========================================
@@ -187,6 +214,7 @@ def get_worst_inconsistency(matrix: np.ndarray, weights: np.ndarray) -> Tuple[in
     worst_i, worst_j = 0, 1
     actual_val, expected_ratio = 1.0, 1.0
     
+    # Compare every pair in the matrix to find highest deviation from expected ratio
     for i in range(n):
         for j in range(i+1, n):
             expected = weights[i] / weights[j]
@@ -213,6 +241,7 @@ def calculate_local_weights(ratings: Dict[str, float], config: Dict[str, Any]) -
         ratings_list = [ratings[fid] for fid in domain_factors]
         ratings_array = np.array(ratings_list, dtype=float)
         
+        # Normalize ratings using PyMCDM sum normalization
         norm_array = sum_normalization(ratings_array, cost=False)
         
         for idx, fid in enumerate(domain_factors):
@@ -221,6 +250,7 @@ def calculate_local_weights(ratings: Dict[str, float], config: Dict[str, Any]) -
     return local_weights
 
 def calculate_global_weights(cat_weights: Dict[str, float], local_weights: Dict[str, float], config: Dict[str, Any]) -> Dict[str, float]:
+    """Multiplies category weights by local weights to yield global criteria weights."""
     global_weights = {}
     for factor in config.get("factors", []):
         fid = factor["id"]
@@ -229,9 +259,10 @@ def calculate_global_weights(cat_weights: Dict[str, float], local_weights: Dict[
     return global_weights
 
 # ==========================================
-# PUBLIC API FOR MAIN.PY
+# PUBLIC API FOR MAIN.PY / UI
 # ==========================================
 def load_or_initialize_weights() -> Dict[str, Any]:
+    """Orchestrates loading factors, AHP matrix, and ratings, then computes final weights bundle."""
     config = load_factors_config()
     domains = config.get("domains", [])
     
@@ -254,6 +285,7 @@ def load_or_initialize_weights() -> Dict[str, Any]:
     return weights_bundle
 
 def get_global_weights() -> Dict[str, float]:
+    """Convenience wrapper to quickly retrieve global weights dictionary."""
     weights = load_or_initialize_weights()
     return weights["global_weights"]
 
@@ -261,6 +293,7 @@ def get_global_weights() -> Dict[str, float]:
 # INTERACTIVE CLI MENUS
 # ==========================================
 def view_weights_cli(config: Dict[str, Any], weights: Dict[str, Any]):
+    """CLI interactive screen for viewing weights with visual charts and sorting."""
     sort_mode = "default"
     
     while True:
@@ -349,7 +382,7 @@ def view_weights_cli(config: Dict[str, Any], weights: Dict[str, Any]):
         else:
             print(raw_table)
         
-        # 5. Interactive sorting menu
+        # 5. Interactive sorting menu options
         print("\nOptions:")
         print(" [1] Sort by Global % (Descending)")
         print(" [2] Sort by Domain (Alphabetical/Grouped)")
@@ -369,6 +402,7 @@ def view_weights_cli(config: Dict[str, Any], weights: Dict[str, Any]):
             print("\033[93mInvalid choice. Please select 1, 2, 3, or 'b'.\033[0m")
 
 def edit_ahp_matrix_cli(config: Dict[str, Any]):
+    """CLI interactive screen for viewing and modifying pairwise comparison matrices."""
     domains = config["domains"]
     n = len(domains)
     matrix = load_ahp_matrix(domains)
@@ -416,7 +450,8 @@ def edit_ahp_matrix_cli(config: Dict[str, Any]):
                 # Recover generated matrix
                 mat = getattr(ahp_model, 'matrix', getattr(ahp_model, '_matrix', None))
                 if mat is None:
-                    temp_csv = os.path.join(DATA_DIR, 'temp_ahp.csv')
+                    proj_dir = _get_project_data_dir()
+                    temp_csv = os.path.join(proj_dir, 'temp_ahp.csv')
                     ahp_model.to_csv(temp_csv)
                     mat = np.loadtxt(temp_csv, delimiter=',')
                     if os.path.exists(temp_csv):
@@ -463,6 +498,7 @@ def edit_ahp_matrix_cli(config: Dict[str, Any]):
             print("Invalid format. Please use 'row col value' (e.g., '1 2 5').")
 
 def edit_ratings_cli(config: Dict[str, Any]):
+    """CLI interactive screen for managing local criteria ratings."""
     import textwrap
     factors = config["factors"]
     domains = config["domains"]
@@ -600,6 +636,7 @@ def edit_ratings_cli(config: Dict[str, Any]):
             print("\033[93mInvalid input. Please enter a number or 'b' or 'i'.\033[0m")
 
 def run_weights_cli():
+    """Main CLI menu handler for the Hybrid Weight Engine."""
     try:
         config = load_factors_config()
     except FileNotFoundError as e:

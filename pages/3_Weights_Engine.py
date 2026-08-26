@@ -17,18 +17,48 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from src.factors_manager import load_factors_config
-WEIGHTS_FILE = os.path.join(BASE_DIR, 'data', 'weights.json')
-RATING_CONFIG_FILE = os.path.join(BASE_DIR, 'data', 'rating_config.json')
+from src.project_manager import get_active_project_dir
+from src.project_manager import get_active_project_id
+
+# Dynamic path resolution functions for active project workspace isolation
+def _get_project_data_dir() -> str:
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
+
+def get_weights_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), 'weights.json')
+
+def get_rating_config_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), 'rating_config.json')
+
+def get_preset_weights_dir() -> str:
+    d = os.path.join(_get_project_data_dir(), 'weight_presets')
+    if not os.path.exists(d):
+        os.makedirs(d)
+    return d
 
 st.set_page_config(page_title="Weights Engine", page_icon="⚖️", layout="wide")
+
+# ==========================================
+# ACTIVE PROJECT GUARD (PASTE HERE)
+# ==========================================
+active_proj_id = get_active_project_id()
+if not active_proj_id:
+    st.warning("⚠️ **No Active Project Selected.** Please go to the **Decision Hub** to create or open a project workspace.")
+    if st.button("🗂️ Go to Decision Hub", type="primary"):
+        st.switch_page("pages/0_Decision_Hub.py")
+    st.stop()
 
 # ==========================================
 # LOAD WEIGHT SYSTEM MODE
 # ==========================================
 def get_weight_system_mode() -> str:
-    if os.path.exists(RATING_CONFIG_FILE):
+    config_file = get_rating_config_filepath()
+    if os.path.exists(config_file):
         try:
-            with open(RATING_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:
                 cfg = json.load(f)
                 return cfg.get("weight_system_mode", "Dual Hybrid (Categories & Criteria)")
         except Exception:
@@ -41,8 +71,9 @@ weight_system_mode = get_weight_system_mode()
 # STATE MANAGEMENT & VALIDATION HELPERS
 # ==========================================
 def load_safe_weights():
-    if os.path.exists(WEIGHTS_FILE):
-        with open(WEIGHTS_FILE, 'r', encoding='utf-8') as f:
+    weights_file = get_weights_filepath()
+    if os.path.exists(weights_file):
+        with open(weights_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             if "domain_ids" not in data:
                 data["domain_ids"] = []
@@ -58,15 +89,14 @@ def load_safe_weights():
     }
 
 def save_weights_state(new_weights):
-    with open(WEIGHTS_FILE, 'w', encoding='utf-8') as f:
+    weights_file = get_weights_filepath()
+    with open(weights_file, 'w', encoding='utf-8') as f:
         json.dump(new_weights, f, indent=4)
 
 # ==========================================
 # WEIGHT PRESET MANAGER (SIDEBAR)
 # ==========================================
-PRESET_WEIGHTS_DIR = os.path.join(BASE_DIR, 'data', 'weight_presets')
-if not os.path.exists(PRESET_WEIGHTS_DIR):
-    os.makedirs(PRESET_WEIGHTS_DIR)
+PRESET_WEIGHTS_DIR = get_preset_weights_dir()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚖️ Weight Presets")
@@ -120,7 +150,7 @@ num_domains = len(domains)
 # ==============================================================================
 if weight_system_mode == "Single Flat Weighting (Direct Criteria Pool)":
     st.title("⚖️ Weights Engine — Single Flat Weighting")
-    st.caption("Active Mode: **Single Flat Weighting**. All criteria are evaluated in a unified pool and normalized directly[cite: 3].")
+    st.caption("Active Mode: **Single Flat Weighting**. All criteria are evaluated in a unified pool and normalized directly.")
 
     if not factors:
         st.warning("No criteria found. Please add criteria in 'Criteria Overview' first.")
@@ -175,7 +205,7 @@ if weight_system_mode == "Single Flat Weighting (Direct Criteria Pool)":
 
     with tab_flat_edit:
         st.header("Direct Criteria Weight Editor")
-        st.caption("Rate criteria on a 1–10 scale. The engine will automatically normalize them to sum to 100%[cite: 3].")
+        st.caption("Rate criteria on a 1–10 scale. The engine will automatically normalize them to sum to 100%.")
 
         with st.form("flat_weights_form"):
             new_flat_ratings = {}
@@ -432,14 +462,15 @@ else:
     saved_ratings = weights.get("raw_ratings", {})
     missing_factors = [f for f in factors if f["id"] not in saved_ratings]
 
+    rating_config_file = get_rating_config_filepath()
     try:
-        with open(RATING_CONFIG_FILE, 'r', encoding='utf-8') as f:
+        with open(rating_config_file, 'r', encoding='utf-8') as f:
             global_rating_config = json.load(f)
     except FileNotFoundError:
         global_rating_config = {"weight_init_mode": "🧮 AHP Pairwise Comparisons"}
 
     st.title("⚖️ Weights Engine — Dual Hybrid Architecture")
-    st.caption("Active Mode: **Dual Hybrid**. Calibrate category priorities via AHP and local criteria via ratings[cite: 3].")
+    st.caption("Active Mode: **Dual Hybrid**. Calibrate category priorities via AHP and local criteria via ratings.")
 
     if not matrix_is_valid or missing_pairs:
         st.header("Step 1: Category Weights Initialization")

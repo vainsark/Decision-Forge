@@ -17,15 +17,45 @@ if BASE_DIR not in sys.path:
 
 from src.factors_manager import load_factors_config
 from src.evaluations import load_rating_config, load_evaluations, calculate_trapezoid, save_evaluations
+from src.project_manager import get_active_project_dir
+from src.project_manager import get_active_project_id
+
+
+# Dynamic path resolution functions for active project workspace isolation
+def _get_project_data_dir() -> str:
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
+
+def get_evaluations_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), 'evaluations.json')
+
+def get_rating_config_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), 'rating_config.json')
+
+def get_evaluation_presets_dir() -> str:
+    d = os.path.join(_get_project_data_dir(), 'evaluation_presets')
+    if not os.path.exists(d):
+        os.makedirs(d)
+    return d
 
 st.set_page_config(page_title="Criteria Evaluations", page_icon="📝", layout="wide")
 
 # ==========================================
+# ACTIVE PROJECT GUARD (PASTE HERE)
+# ==========================================
+active_proj_id = get_active_project_id()
+if not active_proj_id:
+    st.warning("⚠️ **No Active Project Selected.** Please go to the **Decision Hub** to create or open a project workspace.")
+    if st.button("🗂️ Go to Decision Hub", type="primary"):
+        st.switch_page("pages/0_Decision_Hub.py")
+    st.stop()
+
+# ==========================================
 # EVALUATION PRESET MANAGER (SIDEBAR)
 # ==========================================
-PRESET_EVALS_DIR = os.path.join(BASE_DIR, 'data', 'evaluation_presets')
-if not os.path.exists(PRESET_EVALS_DIR):
-    os.makedirs(PRESET_EVALS_DIR)
+PRESET_EVALS_DIR = get_evaluation_presets_dir()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📂 Evaluation Presets")

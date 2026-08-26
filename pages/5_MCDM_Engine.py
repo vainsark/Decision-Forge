@@ -18,15 +18,42 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from src.mcdm_methods import METHOD_REGISTRY
-from src.mcdm_engine import execute_run, RUNS_DIR
+from src.mcdm_engine import execute_run
 from src.mcdm_fuzzy_engine import execute_fuzzy_run
+from src.project_manager import get_active_project_dir
+from src.project_manager import get_active_project_id
+
+
+# Dynamic path resolution functions for active project workspace isolation
+def _get_project_data_dir() -> str:
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
+
+def get_runs_dir() -> str:
+    d = os.path.join(_get_project_data_dir(), 'runs')
+    if not os.path.exists(d):
+        os.makedirs(d)
+    return d
+
+
 
 st.set_page_config(page_title="MCDM Engine", page_icon="🏆", layout="wide")
 st.title("🏆 Multi-Model MCDM Engine & Orchestrator")
 st.caption("Execute deterministic and fuzzy decision models, evaluate consensus rankings, and compare historical decision snapshots.")
 
-if not os.path.exists(RUNS_DIR):
-    os.makedirs(RUNS_DIR)
+# ==========================================
+# ACTIVE PROJECT GUARD
+# ==========================================
+active_proj_id = get_active_project_id()
+if not active_proj_id:
+    st.warning("⚠️ **No Active Project Selected.** Please go to the **Decision Hub** to create or open a project workspace.")
+    if st.button("🗂️ Go to Decision Hub", type="primary"):
+        st.switch_page("pages/0_Decision_Hub.py")
+    st.stop()
+
+RUNS_DIR = get_runs_dir()
 
 # ==========================================
 # HELPER: RENDER A SINGLE RUN
@@ -194,10 +221,12 @@ with tab_history:
     st.header("Compare Saved Decision Runs")
     
     saved_runs = []
-    for file in os.listdir(RUNS_DIR):
-        if file.endswith('.json'):
-            with open(os.path.join(RUNS_DIR, file), 'r', encoding='utf-8') as f:
-                saved_runs.append(json.load(f))
+    runs_dir = get_runs_dir()
+    if os.path.exists(runs_dir):
+        for file in os.listdir(runs_dir):
+            if file.endswith('.json'):
+                with open(os.path.join(runs_dir, file), 'r', encoding='utf-8') as f:
+                    saved_runs.append(json.load(f))
                 
     saved_runs.sort(key=lambda x: x["timestamp"], reverse=True)
     
@@ -221,7 +250,7 @@ with tab_history:
             
             if st.button("🗑️ Delete this Run", type="secondary"):
                 target_id = runs_to_compare[0]["run_id"]
-                os.remove(os.path.join(RUNS_DIR, f"{target_id}.json"))
+                os.remove(os.path.join(runs_dir, f"{target_id}.json"))
                 st.success("Run deleted successfully! Refreshing...")
                 st.rerun()
                 

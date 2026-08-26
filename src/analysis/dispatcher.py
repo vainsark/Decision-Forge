@@ -9,18 +9,40 @@ import json
 import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DATA_DIR = os.path.join(BASE_DIR, 'data')
-RUNS_DIR = os.path.join(DATA_DIR, 'runs')
-ANALYSIS_RUNS_DIR = os.path.join(DATA_DIR, 'analysis_runs')
-
-EVALUATIONS_FILE = os.path.join(DATA_DIR, 'evaluations.json')
-RATING_CONFIG_FILE = os.path.join(DATA_DIR, 'rating_config.json')
-WEIGHTS_FILE = os.path.join(DATA_DIR, 'weights.json')
-FACTORS_CONFIG_FILE = os.path.join(DATA_DIR, 'factors_config.json')
-
 from src.mcdm_methods import METHOD_REGISTRY
 from src.factors_manager import load_factors_config
+from src.project_manager import get_active_project_dir
+
+# =========================================================================
+# DYNAMIC PATH RESOLUTION FOR MULTI-PROJECT WORKSPACES
+# =========================================================================
+def _get_project_data_dir() -> str:
+    """Dynamically retrieves the absolute path of the currently active project directory."""
+    return get_active_project_dir()
+
+def get_runs_dir() -> str:
+    """Returns the runs directory path inside the active project folder."""
+    return os.path.join(_get_project_data_dir(), 'runs')
+
+def get_analysis_runs_dir() -> str:
+    """Returns the analysis runs directory path inside the active project folder."""
+    return os.path.join(_get_project_data_dir(), 'analysis_runs')
+
+def get_evaluations_filepath() -> str:
+    """Returns the path to the evaluations file for the active project."""
+    return os.path.join(_get_project_data_dir(), 'evaluations.json')
+
+def get_rating_config_filepath() -> str:
+    """Returns the path to the rating configuration file for the active project."""
+    return os.path.join(_get_project_data_dir(), 'rating_config.json')
+
+def get_weights_filepath() -> str:
+    """Returns the path to the weights file for the active project."""
+    return os.path.join(_get_project_data_dir(), 'weights.json')
+
+def get_factors_filepath() -> str:
+    """Returns the path to the factors configuration file for the active project."""
+    return os.path.join(_get_project_data_dir(), 'factors_config.json')
 
 
 # =========================================================================
@@ -36,9 +58,10 @@ def parse_factor_type(t_val: Any) -> int:
 
 
 def load_weights_direct() -> Dict[str, Any]:
-    """Loads weights.json directly from the data directory."""
-    if os.path.exists(WEIGHTS_FILE):
-        with open(WEIGHTS_FILE, 'r', encoding='utf-8') as f:
+    """Loads weights data directly from the active project's weights file."""
+    weights_file = get_weights_filepath()
+    if os.path.exists(weights_file):
+        with open(weights_file, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {}
 
@@ -46,9 +69,10 @@ _load_weights_safely = load_weights_direct
 
 
 def load_evaluations_direct() -> List[Dict[str, Any]]:
-    """Loads evaluations.json directly from the data directory."""
-    if os.path.exists(EVALUATIONS_FILE):
-        with open(EVALUATIONS_FILE, 'r', encoding='utf-8') as f:
+    """Loads evaluations directly from the active project's evaluations file."""
+    evals_file = get_evaluations_filepath()
+    if os.path.exists(evals_file):
+        with open(evals_file, 'r', encoding='utf-8') as f:
             return json.load(f)
     return []
 
@@ -56,9 +80,10 @@ _load_evaluations_safely = load_evaluations_direct
 
 
 def load_rating_config_direct() -> Dict[str, Any]:
-    """Loads rating_config.json with default coefficient fallbacks."""
-    if os.path.exists(RATING_CONFIG_FILE):
-        with open(RATING_CONFIG_FILE, 'r', encoding='utf-8') as f:
+    """Loads rating configuration from the active project with default coefficient fallbacks."""
+    rating_file = get_rating_config_filepath()
+    if os.path.exists(rating_file):
+        with open(rating_file, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {"coefficients": {"Kv": 0.5, "Ke": 0.5, "Kb": 1.0}}
 
@@ -140,18 +165,21 @@ class AnalysisDispatcher:
     
     @staticmethod
     def _ensure_analysis_dir():
-        if not os.path.exists(ANALYSIS_RUNS_DIR):
-            os.makedirs(ANALYSIS_RUNS_DIR)
+        """Ensures that the active project's analysis runs directory exists."""
+        analysis_runs_dir = get_analysis_runs_dir()
+        if not os.path.exists(analysis_runs_dir):
+            os.makedirs(analysis_runs_dir)
 
     @staticmethod
     def list_saved_runs() -> List[Dict[str, Any]]:
-        """Lists all saved MCDM baseline runs from data/runs/."""
-        if not os.path.exists(RUNS_DIR):
+        """Lists all saved MCDM baseline runs from the active project's runs directory."""
+        runs_dir = get_runs_dir()
+        if not os.path.exists(runs_dir):
             return []
         runs = []
-        for file in os.listdir(RUNS_DIR):
+        for file in os.listdir(runs_dir):
             if file.endswith('.json'):
-                path = os.path.join(RUNS_DIR, file)
+                path = os.path.join(runs_dir, file)
                 try:
                     with open(path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
@@ -169,10 +197,10 @@ class AnalysisDispatcher:
 
     @staticmethod
     def load_baseline_run(run_id: str) -> Dict[str, Any]:
-        """Loads a saved MCDM run JSON file."""
-        filepath = os.path.join(RUNS_DIR, f"{run_id}.json")
+        """Loads a saved MCDM run JSON file from the active project directory."""
+        filepath = os.path.join(get_runs_dir(), f"{run_id}.json")
         if not os.path.exists(filepath):
-            raise FileNotFoundError(f"Saved run with ID '{run_id}' not found.")
+            raise FileNotFoundError(f"Saved run with ID '{run_id}' not found in active project.")
         with open(filepath, 'r', encoding='utf-8') as f:
             return json.load(f)
 
@@ -180,7 +208,7 @@ class AnalysisDispatcher:
     def build_in_memory_context(baseline_run_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Builds in-memory data structures. Prioritizes historical snapshots when available,
-        falling back directly to data/ JSON files.
+        falling back directly to active project JSON files.
         """
         baseline_run = None
         if baseline_run_id:
@@ -405,7 +433,7 @@ class AnalysisDispatcher:
 
     @staticmethod
     def save_analysis_experiment(experiment_data: Dict[str, Any], custom_name: str = "") -> str:
-        """Saves a sensitivity, epistemic, or Monte Carlo experiment into data/analysis_runs/."""
+        """Saves a sensitivity, epistemic, or Monte Carlo experiment into the active project's analysis runs directory."""
         AnalysisDispatcher._ensure_analysis_dir()
         import uuid
         from datetime import datetime
@@ -417,7 +445,7 @@ class AnalysisDispatcher:
         experiment_data["saved_name"] = custom_name.strip() if custom_name else f"Analysis_{exp_id[:16]}"
         experiment_data["saved_timestamp"] = timestamp
 
-        save_path = os.path.join(ANALYSIS_RUNS_DIR, f"{exp_id}.json")
+        save_path = os.path.join(get_analysis_runs_dir(), f"{exp_id}.json")
         with open(save_path, 'w', encoding='utf-8') as f:
             json.dump(experiment_data, f, indent=4)
             
@@ -425,12 +453,16 @@ class AnalysisDispatcher:
 
     @staticmethod
     def list_saved_analysis_experiments(filter_type: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Lists saved experiments. filter_type can be 'sensitivity', 'epistemic', 'monte_carlo', or None."""
+        """Lists saved experiments from the active project. filter_type can be 'sensitivity', 'epistemic', 'monte_carlo', or None."""
         AnalysisDispatcher._ensure_analysis_dir()
+        analysis_runs_dir = get_analysis_runs_dir()
         experiments = []
-        for file in os.listdir(ANALYSIS_RUNS_DIR):
+        if not os.path.exists(analysis_runs_dir):
+            return experiments
+
+        for file in os.listdir(analysis_runs_dir):
             if file.endswith('.json'):
-                path = os.path.join(ANALYSIS_RUNS_DIR, file)
+                path = os.path.join(analysis_runs_dir, file)
                 try:
                     with open(path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
@@ -464,16 +496,16 @@ class AnalysisDispatcher:
 
     @staticmethod
     def load_saved_analysis_experiment(analysis_id: str) -> Dict[str, Any]:
-        """Loads a saved analysis experiment JSON."""
-        filepath = os.path.join(ANALYSIS_RUNS_DIR, f"{analysis_id}.json")
+        """Loads a saved analysis experiment JSON from the active project directory."""
+        filepath = os.path.join(get_analysis_runs_dir(), f"{analysis_id}.json")
         if not os.path.exists(filepath):
-            raise FileNotFoundError(f"Analysis experiment '{analysis_id}' not found.")
+            raise FileNotFoundError(f"Analysis experiment '{analysis_id}' not found in active project.")
         with open(filepath, 'r', encoding='utf-8') as f:
             return json.load(f)
 
     @staticmethod
     def delete_saved_analysis_experiment(analysis_id: str):
-        """Deletes a saved analysis experiment file."""
-        filepath = os.path.join(ANALYSIS_RUNS_DIR, f"{analysis_id}.json")
+        """Deletes a saved analysis experiment file from the active project directory."""
+        filepath = os.path.join(get_analysis_runs_dir(), f"{analysis_id}.json")
         if os.path.exists(filepath):
             os.remove(filepath)

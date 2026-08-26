@@ -10,25 +10,60 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import streamlit as st
+import sys
 from typing import Optional, Any
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+from src.project_manager import get_active_project_dir
+from src.project_manager import get_active_project_id
+
+
+# Dynamic path resolution functions for active project workspace isolation
+def _get_project_data_dir() -> str:
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
+
+def get_runs_dir() -> str:
+    d = os.path.join(_get_project_data_dir(), "runs")
+    if not os.path.exists(d):
+        os.makedirs(d, exist_ok=True)
+    return d
+
+def get_rating_config_filepath() -> str:
+    return os.path.join(_get_project_data_dir(), "rating_config.json")
 
 st.set_page_config(page_title="Analytics Dashboard", page_icon="📊", layout="wide")
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RUNS_DIR = os.path.join(BASE_DIR, "data", "runs")
-RATING_CONFIG_FILE = os.path.join(BASE_DIR, "data", "rating_config.json")
+# ==========================================
+# ACTIVE PROJECT GUARD
+# ==========================================
+active_proj_id = get_active_project_id()
+if not active_proj_id:
+    st.warning("⚠️ **No Active Project Selected.** Please go to the **Decision Hub** to create or open a project workspace.")
+    if st.button("🗂️ Go to Decision Hub", type="primary"):
+        st.switch_page("pages/0_Decision_Hub.py")
+    st.stop()
 
-os.makedirs(RUNS_DIR, exist_ok=True)
-run_files = sorted([f for f in os.listdir(RUNS_DIR) if f.endswith(".json")], reverse=True)
+RUNS_DIR = get_runs_dir()
+RATING_CONFIG_FILE = get_rating_config_filepath()
+
+
+
+run_files = sorted([f for f in os.listdir(RUNS_DIR) if f.endswith(".json")], reverse=True) if os.path.exists(RUNS_DIR) else []
 
 # ==========================================
 # GUARD: NO RUNS FOUND
 # ==========================================
 if not run_files:
     st.title("📊 Analytics Dashboard")
-    st.warning("⚠️ No baseline MCDM runs found in `data/runs/`[cite: 6].")
-    st.info("Please navigate to **Step 4: MCDM Engine**, run a calculation, and save a baseline run first[cite: 6].")
-    st.page_link("pages/4_MCDM_Engine.py", label="➔ Go to 4. MCDM Engine", use_container_width=False)
+    st.warning("⚠️ No baseline MCDM runs found in this project's runs directory.")
+    st.info("Please navigate to **MCDM Engine**, run a calculation, and save a baseline run first.")
+    st.page_link("pages/5_MCDM_Engine.py", label="➔ Go to MCDM Engine", use_container_width=False)
     st.stop()
 
 # ==========================================
@@ -104,9 +139,10 @@ st.markdown("---")
 def get_run_weight_system_mode(data) -> str:
     if "weight_system_mode" in data:
         return data["weight_system_mode"]
-    if os.path.exists(RATING_CONFIG_FILE):
+    cfg_file = get_rating_config_filepath()
+    if os.path.exists(cfg_file):
         try:
-            with open(RATING_CONFIG_FILE, "r", encoding="utf-8") as f:
+            with open(cfg_file, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
                 return cfg.get("weight_system_mode", "Dual Hybrid (Categories & Criteria)")
         except Exception:
@@ -195,7 +231,7 @@ with col_ranks:
 
 st.info(
     "💡 **How to interpret Consensus & Rank Agreement:** "
-    "The Consensus Winner is determined by aggregating 1st-place votes across all successfully executed MCDM models (e.g., TOPSIS, WASPAS, WSM, WPM, Fuzzy PROMETHEE)[cite: 6]. "
+    "The Consensus Winner is determined by aggregating 1st-place votes across all successfully executed MCDM models (e.g., TOPSIS, WASPAS, WSM, WPM, Fuzzy PROMETHEE). "
     "The **Model Agreement %** measures robustness: a 100% agreement indicates that all mathematical paradigms unanimously favor the top alternative, minimizing model-selection bias."
 )
 
@@ -238,7 +274,6 @@ if score_records:
         color_discrete_map=alt_color_map
     )
     
-    # Gracefully handle zero/flat bars by forcing text labels outside and preventing clipping
     fig_scores.update_traces(
         texttemplate="%{y:.3f}", 
         textposition="outside", 
@@ -248,7 +283,7 @@ if score_records:
     fig_scores.update_layout(
         margin=dict(l=20, r=20, t=60, b=30), 
         legend=dict(orientation="h", y=1.15, x=0.3),
-        yaxis=dict(rangemode="tozero") # Anchors the y-axis cleanly to zero
+        yaxis=dict(rangemode="tozero")
     )
     st.plotly_chart(fig_scores, use_container_width=True)
 
