@@ -33,6 +33,48 @@ st.set_page_config(
 )
 
 # ==========================================
+# HELPER: PROJECT TELEMETRY SNAPSHOT
+# ==========================================
+def get_project_telemetry(proj_folder: str):
+    domains_cnt = 0
+    factors_cnt = 0
+    alternatives_set = set()
+    runs_cnt = 0
+    analyses_cnt = 0
+
+    f_path = os.path.join(proj_folder, 'factors_config.json')
+    if os.path.exists(f_path):
+        try:
+            with open(f_path, 'r', encoding='utf-8') as f:
+                f_data = json.load(f)
+                domains_cnt = len(f_data.get("domains", []))
+                factors_cnt = len(f_data.get("factors", []))
+        except Exception:
+            pass
+
+    e_path = os.path.join(proj_folder, 'evaluations.json')
+    if os.path.exists(e_path):
+        try:
+            with open(e_path, 'r', encoding='utf-8') as f:
+                e_data = json.load(f)
+                for e in e_data:
+                    alt_key = next((k for k in ["country", "alternative", "option"] if k in e), None)
+                    if alt_key:
+                        alternatives_set.add(e[alt_key])
+        except Exception:
+            pass
+
+    r_dir = os.path.join(proj_folder, 'runs')
+    if os.path.exists(r_dir):
+        runs_cnt = len([f for f in os.listdir(r_dir) if f.endswith('.json')])
+
+    a_dir = os.path.join(proj_folder, 'analysis_runs')
+    if os.path.exists(a_dir):
+        analyses_cnt = len([f for f in os.listdir(a_dir) if f.endswith('.json')])
+
+    return domains_cnt, factors_cnt, sorted(list(alternatives_set)), runs_cnt, analyses_cnt
+
+# ==========================================
 # SESSION STATE & SIDEBAR WIDGET SYNC
 # ==========================================
 active_id = get_active_project_id()
@@ -94,7 +136,28 @@ with tab_list:
                         st.markdown(f"### 🟢 **{p.get('name', p_id)}** `[Active Workspace]`")
                     else:
                         st.markdown(f"### **{p.get('name', p_id)}**")
+                        
                     st.caption(p.get("description", "No description provided."))
+
+                    # Project mini snapshot telemetry beneath description
+                    proj_folder = os.path.join(PROJECTS_DIR, p_id)
+                    domains_n, factors_n, raw_alts, runs_n, analyses_n = get_project_telemetry(proj_folder)
+                    if raw_alts:
+                        arena_str = " vs ".join(raw_alts)
+                    else:
+                        arena_str = "Alternative A vs Alternative B"
+                    
+                    st.markdown(
+                        f"<div style='margin-top: 6px; font-size: 1rem; color: #A0AEC0;'>"
+                        f"📊 <b>{domains_n}</b> Categories &nbsp;|&nbsp; "
+                        f"📋 <b>{factors_n}</b> Factors &nbsp;|&nbsp; "
+                        f"🎯 <b>{arena_str}</b> &nbsp;|&nbsp; "
+                        f"📈 <b>{runs_n}</b> Runs &nbsp;|&nbsp; "
+                        f"🔬 <b>{analyses_n}</b> Stress Tests"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+                    
                     st.text(f"ID: {p_id} | Last Modified: {p.get('updated_at', 'N/A')[:16].replace('T', ' ')}")
                     
                 with col2:

@@ -38,42 +38,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
+
 # Custom CSS for sleek glassmorphic card styling, clickable card links, and badges[cite: 1]
 st.markdown("""
 <style>
-    .kpi-container {
-        background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 12px;
-        padding: 14px 18px;
-        text-align: left;
-    }
-    .kpi-label {
-        font-size: 0.80rem;
-        color: #A0AEC0;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-        font-weight: 600;
-        margin-bottom: 4px;
-    }
-    .kpi-value {
-        font-size: 1.25rem;
-        font-weight: 700;
-        color: #FFFFFF;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-    .flag-img {
-        width: 22px;
-        height: 16px;
-        border-radius: 3px;
-        vertical-align: middle;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-        margin-right: 4px;
-        margin-bottom: 2px;
-    }
-    
     /* Clickable Container Card Styling */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%) !important;
@@ -140,118 +109,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================================================
-# LIVE SYSTEM DATA TELEMETRY & OPTIONAL FLAG/ENTITY PARSER
-# =========================================================================
-FLAG_CODE_MAP = {
-    "usa": "us", "united states": "us", "germany": "de",
-    "uk": "gb", "united kingdom": "gb", "france": "fr", "canada": "ca",
-    "japan": "jp", "australia": "au", "spain": "es", "italy": "it"
-}
-
-def get_entity_html(entity_name: str) -> str:
-    c_lower = entity_name.strip().lower()
-    code = FLAG_CODE_MAP.get(c_lower, "")
-    if code:
-        img_tag = f'<img src="https://flagcdn.com/28x21/{code}.png" class="flag-img" alt="{entity_name}">'
-        return f'{img_tag}<span>{entity_name}</span>'
-    return f'<span>{entity_name}</span>'
-
-def get_system_telemetry():
-    domains_cnt = 0
-    factors_cnt = 0
-    alternatives_set = set()
-    runs_cnt = 0
-    analyses_cnt = 0
-
-    f_path = os.path.join(DATA_DIR, 'factors_config.json')
-    if os.path.exists(f_path):
-        try:
-            with open(f_path, 'r', encoding='utf-8') as f:
-                f_data = json.load(f)
-                domains_cnt = len(f_data.get("domains", []))
-                factors_cnt = len(f_data.get("factors", []))
-        except Exception:
-            pass
-
-    e_path = os.path.join(DATA_DIR, 'evaluations.json')
-    if os.path.exists(e_path):
-        try:
-            with open(e_path, 'r', encoding='utf-8') as f:
-                e_data = json.load(f)
-                for e in e_data:
-                    alt_key = next((k for k in ["country", "alternative", "option"] if k in e), None)
-                    if alt_key:
-                        alternatives_set.add(e[alt_key])
-        except Exception:
-            pass
-
-    r_dir = os.path.join(DATA_DIR, 'runs')
-    if os.path.exists(r_dir):
-        runs_cnt = len([f for f in os.listdir(r_dir) if f.endswith('.json')])
-
-    a_dir = os.path.join(DATA_DIR, 'analysis_runs')
-    if os.path.exists(a_dir):
-        analyses_cnt = len([f for f in os.listdir(a_dir) if f.endswith('.json')])
-
-    return domains_cnt, factors_cnt, sorted(list(alternatives_set)), runs_cnt, analyses_cnt
-
-domains_n, factors_n, raw_alternatives, runs_n, analyses_n = get_system_telemetry()
-
-if raw_alternatives:
-    arena_html = " <span style='color: #718096; margin: 0 4px;'>vs</span> ".join([get_entity_html(alt) for alt in raw_alternatives])
-else:
-    arena_html = "<span>Alternative A</span> <span style='color: #718096; margin: 0 4px;'>vs</span> <span>Alternative B</span>"
-
-# =========================================================================
 # HEADER & HERO SECTION
 # =========================================================================
 st.title(f"⚖️ {project_title}")
 st.caption(project_caption)
-
-st.markdown("---")
-
-# Telemetry KPI Strip
-kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns([1, 1, 1.5, 1, 1])
-
-with kpi1:
-    st.markdown(f"""
-    <div class="kpi-container">
-        <div class="kpi-label">Categories</div>
-        <div class="kpi-value">{domains_n} Domains</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with kpi2:
-    st.markdown(f"""
-    <div class="kpi-container">
-        <div class="kpi-label">Criteria Pool</div>
-        <div class="kpi-value">{factors_n} Factors</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with kpi3:
-    st.markdown(f"""
-    <div class="kpi-container">
-        <div class="kpi-label">Decision Scope</div>
-        <div class="kpi-value">{arena_html}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with kpi4:
-    st.markdown(f"""
-    <div class="kpi-container">
-        <div class="kpi-label">Baseline Runs</div>
-        <div class="kpi-value">{runs_n} Runs</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with kpi5:
-    st.markdown(f"""
-    <div class="kpi-container">
-        <div class="kpi-label">Stress Archive</div>
-        <div class="kpi-value">{analyses_n} Tests</div>
-    </div>
-    """, unsafe_allow_html=True)
 
 st.markdown("---")
 

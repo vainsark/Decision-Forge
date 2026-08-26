@@ -8,6 +8,6 @@ if exist ".venv\Scripts\activate.bat" (
 )
 
 echo Launching Decision Support System Dashboard...
-streamlit run app.py --server.headless=false --browser.gatherUsageStats=false
+streamlit run Home.py --server.headless=false --browser.gatherUsageStats=false
 
 pause
