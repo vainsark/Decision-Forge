@@ -17,8 +17,10 @@ from src.project_manager import get_active_project_dir
 # DYNAMIC PATH RESOLUTION FOR MULTI-PROJECT WORKSPACES
 # =========================================================================
 def _get_project_data_dir() -> str:
-    """Dynamically retrieves the absolute path of the currently active project directory."""
-    return get_active_project_dir()
+    """Returns the active project directory, asserting it is not None."""
+    proj_dir = get_active_project_dir()
+    assert proj_dir is not None, "Active project directory is required."
+    return proj_dir
 
 def get_runs_dir() -> str:
     """Returns the runs directory path inside the active project folder."""
