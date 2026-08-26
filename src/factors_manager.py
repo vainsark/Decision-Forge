@@ -1,15 +1,13 @@
 """
 Decision Support System - Factors Manager
-Handles loading metadata, saving metadata, intelligent ID generation, CLI helpers, Cascading Deletions,
+Handles loading metadata, saving metadata, intelligent ID generation, Cascading Deletions,
 and Ghost Category management for Single Flat Weighting mode.
 """
 
 import os
 import json
 import numpy as np
-from typing import Dict, Any
-from tabulate import tabulate
-
+from typing import Dict, Any, Optional
 from src.project_manager import get_active_project_dir
 
 # Define paths
@@ -172,7 +170,7 @@ def add_criterion(domain_id: str, name: str, description: str, type_val: int, sh
 # ==========================================
 # CASCADING DELETION LOGIC (SAFE ID PATCHING)
 # ==========================================
-def _rebuild_and_cascade_ids(config: Dict[str, Any], deleted_domain_id: str = None, deleted_factor_id: str = None):
+def _rebuild_and_cascade_ids(config: Dict[str, Any], deleted_domain_id: Optional[str] = None, deleted_factor_id: Optional[str] = None):
     weights_file = get_weights_filepath()
     evaluations_file = get_evaluations_filepath()
     
@@ -302,51 +300,3 @@ def delete_criterion(criterion_id: str):
     config = load_factors_config()
     config["factors"] = [f for f in config["factors"] if f["id"] != criterion_id]
     _rebuild_and_cascade_ids(config, deleted_factor_id=criterion_id)
-
-# ==========================================
-# CLI HELPER
-# ==========================================
-def display_factor_overview(config: Dict[str, Any] = None):
-    import textwrap
-    if config is None: config = load_factors_config()
-        
-    domains = config.get("domains", [])
-    factors = config.get("factors", [])
-    if not domains or not factors:
-        print("No domains or factors found in configuration.")
-        return
-
-    while True:
-        print("\n\033[94m" + "="*50)
-        print(" SYSTEM DOMAINS (CATEGORIES)")
-        print("="*50 + "\033[0m")
-        for i, domain in enumerate(domains):
-            print(f" {i + 1}. {domain.get('name')} ({domain.get('short_name')})")
-            
-        print("\033[94m" + "="*50 + "\033[0m")
-        print("Options:\n [1-X] - Select a domain to view its criteria\n [b]   - Back to Main Menu")
-        choice = input("\nEnter choice: ").strip().lower()
-        if choice == 'b': break
-            
-        try:
-            domain_idx = int(choice) - 1
-            if 0 <= domain_idx < len(domains):
-                selected_domain = domains[domain_idx]
-                domain_factors = [f for f in factors if f.get("domain_id") == selected_domain.get("id")]
-                
-                print("\n\033[93m" + "="*100)
-                print(f" \033[93mCRITERIA FOR: {selected_domain.get('name').upper()}\033[93m")
-                print("="*100 + "\033[0m")
-                
-                table_data = []
-                for f in domain_factors:
-                    type_str = "Benefit (+1)" if f.get("type") == 1 else "Cost (-1)"
-                    wrapped_desc = textwrap.fill(f.get("description", ""), width=55)
-                    table_data.append([f.get("id"), f.get("short_name"), type_str, wrapped_desc])
-                    
-                print(tabulate(table_data, headers=["ID", "Criterion (Short)", "Type", "Description"], tablefmt="grid"))
-                input("\nPress Enter to return to the domains list...")
-            else:
-                print("\n\033[93mInvalid domain number. Please select a valid number from the list.\033[0m")
-        except ValueError:
-            print("\n\033[93mInvalid input. Please enter a number or 'b'.\033[0m")

@@ -15,7 +15,6 @@ from src.evaluations import get_evaluations_filepath, load_rating_config
 from src.mcdm_methods import METHOD_REGISTRY
 from src.project_manager import get_active_project_dir
 
-# Dynamic path resolution functions for active project isolation
 # Dynamic path resolution functions for active project workspace isolation
 def _get_project_data_dir() -> str:
     """Returns the active project directory, asserting it is not None."""
@@ -52,12 +51,12 @@ def _build_fuzzy_matrices() -> Dict[str, Any]:
     with open(eval_path, 'r', encoding='utf-8') as f:
         evaluations = json.load(f)
         
-    countries = list(set([e["country"] for e in evaluations]))
-    countries.sort()
+    alternatives = list(set([e.get("alternative", e.get("country", "")) for e in evaluations if e.get("alternative") or e.get("country")]))
+    alternatives.sort()
     
     c_ids = [f["id"] for f in factors]
     
-    fuzzy_matrix = np.empty((len(countries), len(factors)), dtype=object)
+    fuzzy_matrix = np.empty((len(alternatives), len(factors)), dtype=object)
     weights_arr = np.zeros(len(factors))
     types_arr = np.zeros(len(factors))
     
@@ -65,16 +64,17 @@ def _build_fuzzy_matrices() -> Dict[str, Any]:
         weights_arr[j] = global_weights.get(fid, 0.0)
         types_arr[j] = next((f["type"] for f in factors if f["id"] == fid), 1)
         
-        for i, country in enumerate(countries):
-            ev = next((e for e in evaluations if e["criterion_id"] == fid and e["country"] == country), None)
-            if not ev: raise ValueError(f"Missing evaluation for {country} on {fid}.")
+        for i, alt in enumerate(alternatives):
+            ev = next((e for e in evaluations if e["criterion_id"] == fid and (e.get("alternative") == alt or e.get("country") == alt)), None)
+            if not ev: raise ValueError(f"Missing evaluation for {alt} on {fid}.")
             fuzzy_matrix[i, j] = tuple(ev.get("trapezoid", [ev.get("rating", 0)]*4))
             
     w_sum = np.sum(weights_arr)
     if w_sum > 0: weights_arr = weights_arr / w_sum
             
     return {
-        "countries": countries,
+        "alternatives": alternatives,
+        "countries": alternatives,  # Backwards compatibility
         "matrix": fuzzy_matrix.tolist(),
         "weights": weights_arr,
         "types": types_arr,
@@ -112,7 +112,7 @@ def execute_fuzzy_run(method_names: List[str], run_name: str):
         
         try:
             res = method.execute(
-                matrix=data["matrix"], # Method receives trapezoids seamlessly
+                matrix=data["matrix"],  # Method receives trapezoids seamlessly
                 weights=data["weights"], 
                 types=data["types"], 
                 parameters=parameters
@@ -122,15 +122,15 @@ def execute_fuzzy_run(method_names: List[str], run_name: str):
         except Exception as e:
             results[name] = {"status": "error", "warnings": [str(e)], "method_type": "fuzzy"}
 
-    # Filter evaluations to only the countries included in this run
-    active_countries = data["countries"]
-    filtered_evals = [e for e in data["raw_evaluations"] if e.get("country") in active_countries]
+    active_alts = data["alternatives"]
+    filtered_evals = [e for e in data["raw_evaluations"] if e.get("alternative") in active_alts or e.get("country") in active_alts]
 
     run_snapshot = {
         "run_id": run_id,
         "name": run_name,
         "timestamp": datetime.now().isoformat(),
-        "countries": active_countries,
+        "alternatives": active_alts,
+        "countries": active_alts,  # Backwards compatibility
         "category_weights": data["cat_weights_display"],
         "methods_executed": method_names,
         "parameters": parameters,
