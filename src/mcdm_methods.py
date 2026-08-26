@@ -5,7 +5,7 @@ Provides a unified interface for deterministic and fuzzy MCDM methods.
 
 import numpy as np
 from typing import Dict, Any, List
-from pymcdm.methods import WSM, WPM, WASPAS, TOPSIS, VIKOR
+from pymcdm.methods import WSM, WPM, WASPAS, TOPSIS, VIKOR, PROMETHEE_II
 from pymcdm.helpers import rankdata
 from pymcdm.normalizations import sum_normalization, linear_normalization
 from src.evaluations import load_rating_config
@@ -79,6 +79,32 @@ class TOPSIS_Method(BaseMCDM):
         scores = TOPSIS()(matrix, weights, types)
         ranking = rankdata(scores, reverse=True)
         return {"status": "success", "scores": np.array(scores).tolist(), "ranking": np.array(ranking).tolist()}
+
+class PROMETHEE_II_Method(BaseMCDM):
+    name = "PROMETHEE II"
+    def execute(self, matrix, weights, types, parameters):
+        mat_arr = np.array(matrix)
+        num_crit = mat_arr.shape[1] if mat_arr.ndim == 2 else len(mat_arr[0])
+        
+        # Pull preference function and thresholds from parameters (with robust fallbacks)
+        pref_func_name = parameters.get("promethee_pref_func")
+        q_val = float(parameters.get("promethee_q", 0.5))
+        p_val = float(parameters.get("promethee_p", 3.5))
+        
+        # Broadcast scalar thresholds into criteria-matching arrays
+        q = np.full(num_crit, q_val)
+        p = np.full(num_crit, p_val)
+        
+        # Initialize PyMCDM's PROMETHEE II with the user-selected preference function
+        promethee = PROMETHEE_II(pref_func_name, q=q, p=p)
+        scores = promethee(mat_arr, weights, types)
+        ranking = rankdata(scores, reverse=True)
+        
+        return {
+            "status": "success", 
+            "scores": np.array(scores).tolist(), 
+            "ranking": np.array(ranking).tolist()
+        }
 
 
 class VIKOR_Method(BaseMCDM):
@@ -185,6 +211,7 @@ METHOD_REGISTRY = {
     "WPM": WPM_Method(),
     "WASPAS": WASPAS_Method(),
     "TOPSIS": TOPSIS_Method(),
+    "PROMETHEE II": PROMETHEE_II_Method(),
     # "VIKOR": VIKOR_Method(),
     # "Fuzzy TOPSIS": FuzzyTOPSIS_Method(),
     # "Fuzzy VIKOR": FuzzyVIKOR_Method(),

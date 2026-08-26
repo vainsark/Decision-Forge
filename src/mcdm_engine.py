@@ -22,6 +22,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 RUNS_DIR = os.path.join(DATA_DIR, 'runs')
 ENGINE_CONFIG_FILE = os.path.join(DATA_DIR, 'mcdm_config.json')
+RATING_CONFIG_FILE = os.path.join(DATA_DIR, 'rating_config.json')
 WEIGHTS_FILE = os.path.join(DATA_DIR, 'weights.json')
 
 C_RED = '\033[91m'
@@ -40,19 +41,34 @@ def _ensure_dirs():
 
 def load_engine_config() -> Dict[str, Any]:
     _ensure_dirs()
-    default_config = {"parameters": {"WASPAS_lambda": 0.5}}
-    if os.path.exists(ENGINE_CONFIG_FILE):
-        with open(ENGINE_CONFIG_FILE, 'r', encoding='utf-8') as f:
+    default_config = {
+        "waspas_lambda": 0.5,
+        "promethee_q": 0.5,
+        "promethee_p": 3.5,
+        "promethee_pref_func": "vshape_2",
+        "normalization_mode": "default",
+        "normalization_ceiling": 10.0
+    }
+    if os.path.exists(RATING_CONFIG_FILE):
+        with open(RATING_CONFIG_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
             default_config.update(data)
             return default_config
-    with open(ENGINE_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            
+    with open(RATING_CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(default_config, f, indent=4)
     return default_config
 
 def save_engine_config(config: Dict[str, Any]):
-    with open(ENGINE_CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(config, f, indent=4)
+    _ensure_dirs()
+    if os.path.exists(RATING_CONFIG_FILE):
+        with open(RATING_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    else:
+        data = {}
+    data.update(config)
+    with open(RATING_CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=4)
 
 # ==========================================
 # ENGINE DATA BUILDER & VALIDATION
@@ -137,7 +153,12 @@ def execute_run(method_names: List[str], run_name: str):
         return
         
     config = load_engine_config()
-    parameters = config.get("parameters", {})
+    parameters = {
+        "waspas_lambda": config.get("waspas_lambda", config.get("waspas_lambda", 0.5)),
+        "promethee_q": float(config.get("promethee_q", 0.1)),
+        "promethee_p": float(config.get("promethee_p", 6.0)),
+        "promethee_pref_func": config.get("promethee_pref_func", "vshape_2")
+    }
     
     run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     
@@ -328,7 +349,7 @@ def configure_parameters_cli():
         print(f"\n{C_BLUE}" + "="*50)
         print(" ENGINE PARAMETERS")
         print("="*50 + f"{C_RESET}")
-        print(f"1. WASPAS Lambda: {config['parameters']['WASPAS_lambda']} (0=WPM, 1=WSM, 0.5=Equal)")
+        print(f"1. WASPAS Lambda: {config['parameters']['waspas_lambda']} (0=WPM, 1=WSM, 0.5=Equal)")
         print("b. Back")
         
         choice = input("\nEnter choice: ").strip().lower()
@@ -337,7 +358,7 @@ def configure_parameters_cli():
             try:
                 val = float(input("Enter new Lambda (0.0 to 1.0): "))
                 if 0.0 <= val <= 1.0:
-                    config['parameters']['WASPAS_lambda'] = val
+                    config['parameters']['waspas_lambda'] = val
                     save_engine_config(config)
                     print(f"{C_GREEN}Updated successfully.{C_RESET}")
                 else:

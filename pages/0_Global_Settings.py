@@ -219,14 +219,43 @@ with tab_math:
     # SECTION 1: PROMETHEE PARAMETERS
     # ----------------------------------------------------
     with st.form("promethee_settings_form"):
-        st.subheader("1. Fuzzy PROMETHEE Parameters")
-        st.caption("Set the Type V preference function thresholds on the 0–10 rating difference scale.")
+        st.subheader("1. Fuzzy & Crisp PROMETHEE Parameters")
+        st.caption("Set the preference function shape and thresholds on the 0–10 rating difference scale.")
+        
+        pref_options = {
+            "vshape_2": "Type V: Linear preference with indifference (q) & strict preference (p) thresholds",
+            "vshape": "Type III: V-shape with indifference threshold (q)",
+            "usual": "Type I: Usual criterion (no thresholds)",
+            "ushape": "Type II: U-shape criterion (indifference threshold q)",
+            "level": "Type IV: Level criterion (thresholds q and p)"
+        }
+        current_pref = rating_config.get("promethee_pref_func", "vshape_2")
+        pref_keys = list(pref_options.keys())
+        default_pref_idx = pref_keys.index(current_pref) if current_pref in pref_keys else 0
+        
+        selected_pref_func = st.selectbox(
+            "PROMETHEE Preference Function",
+            options=pref_keys,
+            format_func=lambda x: pref_options[x],
+            index=default_pref_idx,
+            help="Selects the mathematical shape used to calculate preference degrees between alternatives."
+        )
+        
+        # In-App Guide for Preference Functions
+        with st.expander("ℹ️ Guide to PROMETHEE Preference Functions", expanded=False):
+            st.markdown("""
+            * **Type V (`vshape_2`) — *Recommended***: Uses both $q$ and $p$. Differences $\le q$ are treated as noise ($0.0$ preference), differences $\ge p$ yield full preference ($1.0$), and gaps in between ramp up smoothly and linearly. Perfect for 1–10 rating scales.
+            * **Type I (`usual`)**: A strict step function. Any tiny numerical advantage ($> 0$) instantly counts as a full victory ($1.0$). Ignores $q$ and $p$.
+            * **Type II (`ushape`)**: Uses an indifference threshold ($q$). Minor gaps $\le q$ are ignored ($0.0$), but anything exceeding $q$ immediately jumps to full preference ($1.0$).
+            * **Type III (`vshape`)**: A continuous linear ramp starting at $0.0$ when the difference is zero, scaling steadily up to $1.0$ at the strict preference threshold ($p$).
+            * **Type IV (`level`)**: Combines $q$ and $p$ into discrete plateaus (e.g., jumping through intermediate tiers like $0.5$ preference before hitting $1.0$).
+            """)
         
         pq1, pq2 = st.columns(2)
         with pq1:
             new_q = st.number_input(
                 "Indifference Threshold (q)", 
-                value=float(rating_config.get("promethee_q", 0.5)), 
+                value=float(rating_config.get("promethee_q", 0.1)), 
                 min_value=0.0, 
                 max_value=5.0, 
                 step=0.1,
@@ -235,7 +264,7 @@ with tab_math:
         with pq2:
             new_p = st.number_input(
                 "Strict Preference Threshold (p)", 
-                value=float(rating_config.get("promethee_p", 3.5)), 
+                value=float(rating_config.get("promethee_p", 6.0)), 
                 min_value=0.1, 
                 max_value=10.0, 
                 step=0.1,
@@ -243,13 +272,14 @@ with tab_math:
             )
             
         if st.form_submit_button("💾 Save PROMETHEE Parameters", type="primary"):
-            if new_p <= new_q:
-                st.error("⚠️ Preference threshold (p) must be strictly greater than indifference threshold (q).")
+            if new_p <= new_q and selected_pref_func in ["vshape_2", "level"]:
+                st.error("⚠️ Preference threshold (p) must be strictly greater than indifference threshold (q) for this function type.")
             else:
+                rating_config["promethee_pref_func"] = selected_pref_func
                 rating_config["promethee_q"] = new_q
                 rating_config["promethee_p"] = new_p
                 save_rating_config(rating_config)
-                st.success(f"PROMETHEE parameters saved: q = {new_q}, p = {new_p}")
+                st.success(f"PROMETHEE parameters saved: Function = {selected_pref_func}, q = {new_q}, p = {new_p}")
 
     st.markdown("---")
 
