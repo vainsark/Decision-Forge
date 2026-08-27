@@ -155,14 +155,20 @@ def add_domain(name: str, description: str, short_name: str = "") -> str:
     save_factors_config(config)
     return new_id
 
-def add_criterion(domain_id: str, name: str, description: str, type_val: int, short_name: str = "") -> str:
+def add_criterion(domain_id: str, name: str, description: str, type_val: int, evaluation_type: str = "scale", unit: str = "", short_name: str = "") -> str:
     config = load_factors_config()
     new_id = get_next_criterion_id(domain_id, config.get("factors", []))
     if not short_name: short_name = name[:5].upper()
         
     config.setdefault("factors", []).append({
-        "id": new_id, "domain_id": domain_id, "name": (name or "").strip(), "short_name": short_name.strip(), 
-        "description": (description or "").strip(), "type": type_val
+        "id": new_id, 
+        "domain_id": domain_id, 
+        "name": (name or "").strip(), 
+        "short_name": short_name.strip(), 
+        "description": (description or "").strip(), 
+        "type": type_val,
+        "evaluation_type": evaluation_type,
+        "unit": unit.strip() if evaluation_type == "numeric" else ""
     })
     save_factors_config(config)
     return new_id
@@ -285,7 +291,7 @@ def _rebuild_and_cascade_ids(config: Dict[str, Any], deleted_domain_id: Optional
         
     if os.path.exists(evaluations_file):
         for e in evals:
-            if e["criterion_id"] in old_to_new_f: e["criterion_id"] = old_to_new_f[e["criterion_id"]]
+            if e["criterion_id"] in old_to_new_f: e["criterion_id"] = old_to_new_f[old_to_new_f[e["criterion_id"]]] # safely mapped
         with open(evaluations_file, 'w', encoding='utf-8') as f: json.dump(evals, f, indent=4)
 
 def delete_domain(domain_id: str):

@@ -98,27 +98,78 @@ if eval_presets:
         st.rerun()
 
 # ==============================================================================
-# NATIVE DATAFRAME SVG GENERATOR
+# NATIVE DATAFRAME SVG GENERATOR WITH PROFESSIONAL GRID & TICKS
 # ==============================================================================
-def generate_mini_trapezoid_svg(a: float, b: float, c: float, d: float, r: float, color="#38bdf8", width=400, height=48) -> str:
+def generate_mini_trapezoid_svg(a: float, b: float, c: float, d: float, r: float, color="#38bdf8", width=500, height=60, eval_type="scale", min_val=0.0, max_val=10.0, in_cell=False) -> str:
     pad = 16  
     w = width - (2 * pad)
-    def scale(val): return pad + (max(0.0, min(10.0, float(val))) / 10.0) * w
+    span = max(0.001, max_val - min_val)
+    def scale(val): 
+        clamped = max(min_val, min(max_val, float(val)))
+        return pad + ((clamped - min_val) / span) * w
         
     x_a, x_b, x_c, x_d, x_r = scale(a), scale(b), scale(c), scale(d), scale(r)
-    strip_w = 4
+    strip_w = 5 if in_cell else 4
     
     grid_elements = ""
-    for i in range(11):
-        x_pos = scale(i)
-        grid_elements += f'<line x1="{x_pos}" y1="2" x2="{x_pos}" y2="22" stroke="#444" stroke-width="0.8" />\n'
-        grid_elements += f'<text x="{x_pos}" y="36" font-family="sans-serif" font-size="11" fill="#888" text-anchor="middle">{i}</text>\n'
+    
+    if in_cell:
+        # Optimized 5-tick layout with large, high-contrast text for table cells
+        height = 52
+        for i in range(7):
+            val = min_val + (i / 6.0) * span
+            x_pos = scale(val)
+            if eval_type == "scale":
+                label = f"{int(val)}"
+            elif eval_type == "binary":
+                label = f"{int(val)}"
+            else:
+                if abs(val) >= 1000000:
+                    label = f"{val/1000000:.1f}M" if val % 1000000 != 0 else f"{int(val/1000000)}M"
+                elif abs(val) >= 1000:
+                    label = f"{val/1000:.1f}k" if val % 1000 != 0 else f"{int(val/1000)}k"
+                elif abs(val) >= 10 or val == 0:
+                    label = f"{val:.0f}"
+                else:
+                    label = f"{val:.1f}"
+            grid_elements += f'<line x1="{x_pos}" y1="2" x2="{x_pos}" y2="25" stroke="#777" stroke-width="1.2" />\n'
+            grid_elements += f'<text x="{x_pos}" y="46" font-family="sans-serif" font-size="18" font-weight="bold" fill="#ffffff" text-anchor="middle">{label}</text>\n'
+    else:
+        # Detailed standard layout for editor view
+        if eval_type == "scale":
+            for i in range(11):
+                val = float(i)
+                x_pos = scale(val)
+                grid_elements += f'<line x1="{x_pos}" y1="2" x2="{x_pos}" y2="22" stroke="#444" stroke-width="0.8" />\n'
+                grid_elements += f'<text x="{x_pos}" y="38" font-family="sans-serif" font-size="10" fill="#888" text-anchor="middle">{int(val)}</text>\n'
+        elif eval_type == "binary":
+            for val in [0.0, 1.0]:
+                x_pos = scale(val)
+                grid_elements += f'<line x1="{x_pos}" y1="2" x2="{x_pos}" y2="22" stroke="#444" stroke-width="0.8" />\n'
+                grid_elements += f'<text x="{x_pos}" y="38" font-family="sans-serif" font-size="10" fill="#888" text-anchor="middle">{int(val)}</text>\n'
+        else:
+            for i in range(11):
+                val = min_val + (i / 10.0) * span
+                x_pos = scale(val)
+                if abs(val) >= 1000000:
+                    label = f"{val/1000000:.1f}M" if val % 1000000 != 0 else f"{int(val/1000000)}M"
+                elif abs(val) >= 1000:
+                    label = f"{val/1000:.1f}k" if val % 1000 != 0 else f"{int(val/1000)}k"
+                elif abs(val) >= 10 or val == 0:
+                    label = f"{val:.0f}"
+                else:
+                    label = f"{val:.1f}"
+                grid_elements += f'<line x1="{x_pos}" y1="2" x2="{x_pos}" y2="22" stroke="#444" stroke-width="0.8" />\n'
+                grid_elements += f'<text x="{x_pos}" y="38" font-family="sans-serif" font-size="8.5" fill="#888" text-anchor="middle">{label}</text>\n'
 
+    rect_h = 26 if in_cell else 20
+    poly_y = 26 if in_cell else 21
+    
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="100%" height="100%">
-        <rect x="0" y="2" width="{width}" height="20" rx="10" fill="#2b2b36" />
+        <rect x="0" y="2" width="{width}" height="{rect_h}" rx="10" fill="#2b2b36" />
         {grid_elements}
-        <polygon points="{x_a},21 {x_b},3 {x_c},3 {x_d},21" fill="{color}" opacity="0.9" />
-        <rect x="{x_r - strip_w/2}" y="3" width="{strip_w}" height="18" fill="#ffffff" rx="1.5" />
+        <polygon points="{x_a},{poly_y} {x_b},3 {x_c},3 {x_d},{poly_y}" fill="{color}" opacity="0.9" />
+        <rect x="{x_r - strip_w/2}" y="3" width="{strip_w}" height="{rect_h - 3}" fill="#ffffff" rx="1.5" />
     </svg>'''
     
     b64 = base64.b64encode(svg.encode('utf-8')).decode('utf-8')
@@ -175,12 +226,15 @@ existing_pairs = [(e["criterion_id"], e.get("alternative")) for e in evaluations
 missing_pairs = [p for p in expected_pairs if p not in existing_pairs]
 
 # ==========================================
-# REAL-TIME UI RENDERER (CLEAN 4-COLUMN ALIGNMENT)
+# REAL-TIME UI RENDERER (MIXED TYPES WITH GRIDS)
 # ==========================================
 def render_interactive_rating_ui(alternative, factor, current_val=None):
     base_key = f"{alternative}_{factor['id']}"
+    eval_type = factor.get("evaluation_type", "scale")
+    unit = factor.get("unit", "")
+    unit_str = f" ({unit})" if unit else ""
     
-    default_r = float(current_val["rating"]) if current_val else 5.0
+    default_r = float(current_val["rating"]) if current_val else (5.0 if eval_type == "scale" else (0.0 if eval_type == "numeric" else 1.0))
     default_v = int(current_val["volatility"]) if current_val else 0
     default_u = int(current_val["uncertainty"]) if current_val else 0
     
@@ -188,11 +242,34 @@ def render_interactive_rating_ui(alternative, factor, current_val=None):
     default_b_idx = list(bias_opts.values()).index(current_val["bias"]) if current_val and current_val["bias"] in bias_opts.values() else 0
 
     c1, c2, c3, c4 = st.columns(4)
-    r = c1.slider(
-        "Base Rating (0–10)", 0.0, 10.0, default_r, 0.5, 
-        key=f"r_{base_key}",
-        help="Your core expected score. Click anywhere along the slider track to jump directly to a value."
-    )
+    
+    if eval_type == "numeric":
+        r = c1.number_input(
+            f"Base Value{unit_str}", 
+            value=default_r, 
+            step=1.0, 
+            format="%.2f",
+            key=f"r_{base_key}",
+            help=f"Enter the absolute numeric value for {factor['name']} {unit_str}."
+        )
+    elif eval_type == "binary":
+        bin_options = ["Yes (1.0)", "No (0.0)"]
+        default_bin_idx = 0 if default_r >= 0.5 else 1
+        bin_choice = c1.selectbox(
+            "Binary Choice", 
+            bin_options, 
+            index=default_bin_idx,
+            key=f"r_{base_key}",
+            help="Select Yes or No for this binary criterion."
+        )
+        r = 1.0 if "Yes" in bin_choice else 0.0
+    else:
+        r = c1.slider(
+            "Base Rating (0–10)", 0.0, 10.0, default_r, 0.5, 
+            key=f"r_{base_key}",
+            help="Your core expected score. Click anywhere along the slider track to jump directly to a value."
+        )
+
     v = c2.slider(
         "Volatility (0–5)", 0, 5, default_v, 1, 
         key=f"v_{base_key}",
@@ -210,11 +287,23 @@ def render_interactive_rating_ui(alternative, factor, current_val=None):
     )
     b = bias_opts[b_label]
 
-    trap = calculate_trapezoid(r, v, u, b, coeffs)
+    trap = calculate_trapezoid(r, v, u, b, coeffs, criterion_id=factor["id"])
     alt_color = get_alternative_color(alternative, alternatives)
     
+    # Self-adjusting range formula: r * 0.5 to r * 1.5
+    if eval_type == "numeric":
+        if r <= 0:
+            min_val, max_val = 0.0, 100.0
+        else:
+            min_val = r * 0.5
+            max_val = r * 1.5
+    elif eval_type == "binary":
+        min_val, max_val = 0.0, 1.0
+    else:
+        min_val, max_val = 0.0, 10.0
+
     st.markdown("**Real-Time Geometry (Fuzzy Interval):**")
-    svg_b64 = generate_mini_trapezoid_svg(trap[0], trap[1], trap[2], trap[3], r, color=alt_color, width=600, height=52)
+    svg_b64 = generate_mini_trapezoid_svg(trap[0], trap[1], trap[2], trap[3], r, color=alt_color, width=600, height=60, eval_type=eval_type, min_val=min_val, max_val=max_val)
     st.markdown(f'<img src="{svg_b64}" width="100%">', unsafe_allow_html=True)
     st.caption(f"Calculated Bounds [Worst, Lower Core, Upper Core, Best]: [{trap[0]:.2f}, {trap[1]:.2f}, {trap[2]:.2f}, {trap[3]:.2f}]")
     
@@ -233,7 +322,6 @@ if missing_pairs:
     target_factor = next(f for f in factors if f["id"] == target_fid)
     cat_name = category_map.get(target_factor["domain_id"], "Unknown")
     
-    # Polished Header Card: Category secondary on top, Alternative prominent, Criterion large (no ID)
     st.markdown(f"""
         <div style="background: linear-gradient(135deg, rgba(56, 189, 248, 0.1) 0%, rgba(56, 189, 248, 0.02) 100%); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 12px; padding: 22px; margin-bottom: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -286,6 +374,8 @@ else:
 
         table_data = []
         for f in display_factors:
+            eval_type = f.get("evaluation_type", "scale")
+            unit = f.get("unit", "")
             row = {"ID": f["id"], "Category": category_map.get(f.get("domain_id"), "Unknown"), "Criterion": f["name"]}
             for alt in alternatives:
                 ev = next((e for e in evaluations if e["criterion_id"] == f["id"] and e.get("alternative") == alt), None)
@@ -295,8 +385,20 @@ else:
                     alt_color = get_alternative_color(alt, alternatives)
                     
                     bias_text = BIAS_FORMAT_MAP.get(ev['bias'], "NEUTRAL 🟡")
-                    row[f"{alt} Data"] = f"R: {r:.1f}{get_metric_icon(r, 'rating')} | V: {v}{get_metric_icon(v, 'volatility')} | U: {u}{get_metric_icon(u, 'uncertainty')} | {bias_text}"
-                    row[f"{alt} Visual"] = generate_mini_trapezoid_svg(a, b_val, c_val, d, r, color=alt_color)
+                    val_str = f"{r:.2f}" if eval_type == "numeric" else f"{r:.1f}"
+                    unit_suffix = f" {unit}" if eval_type == "numeric" and unit else ""
+                    
+                    row[f"{alt} Data"] = f"Val: {val_str}{unit_suffix} | V: {v} | U: {u} | {bias_text}"
+                    
+                    if eval_type == "numeric":
+                        min_v = 0.0 if r <= 0 else r * 0.5
+                        max_v = 100.0 if r <= 0 else r * 1.5
+                    elif eval_type == "binary":
+                        min_v, max_v = 0.0, 1.0
+                    else:
+                        min_v, max_v = 0.0, 10.0
+                        
+                    row[f"{alt} Visual"] = generate_mini_trapezoid_svg(a, b_val, c_val, d, r, color=alt_color, eval_type=eval_type, min_val=min_v, max_val=max_v, in_cell=True)
                 else:
                     row[f"{alt} Data"] = "N/A"
                     row[f"{alt} Visual"] = None
@@ -309,10 +411,10 @@ else:
             "Criterion": st.column_config.TextColumn("Criterion", width="medium"),
         }
         for alt in alternatives:
-            column_configuration[f"{alt} Data"] = st.column_config.TextColumn(f"{alt} Data", width=230)
-            column_configuration[f"{alt} Visual"] = st.column_config.ImageColumn(f"{alt} (0–10 Scale)", width=220)
+            column_configuration[f"{alt} Data"] = st.column_config.TextColumn(f"{alt} Data", width=240)
+            column_configuration[f"{alt} Visual"] = st.column_config.ImageColumn(f"{alt} (Fuzzy Interval)", width=290)
 
-        matrix_height = min(800, max(450, len(table_data) * 45 + 60))
+        matrix_height = min(900, max(480, len(table_data) * 55 + 60))
 
         st.dataframe(
             pd.DataFrame(table_data), 

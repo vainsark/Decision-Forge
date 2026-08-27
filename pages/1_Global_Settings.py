@@ -66,7 +66,14 @@ try:
 except FileNotFoundError:
     rating_config = {
         "alternatives": [],
-        "coefficients": {"Kv": 0.5, "Ke": 0.5, "Kb": 1.0},
+        "coefficients": {
+            "Kv": 0.5, 
+            "Ke": 0.5, 
+            "Kb": 1.0,
+            "Kv_numeric": 5.0,
+            "Ke_numeric": 5.0,
+            "Kb_numeric": 2.0
+        },
         "defuzz_weights": [0.1667, 0.3333, 0.3333, 0.1667],
         "promethee_q": 0.5,
         "promethee_p": 3.5,
@@ -91,7 +98,15 @@ def recalculate_all_evaluations(coeffs):
         evals = json.load(f)
         
     for ev in evals:
-        trap = calculate_trapezoid(ev['rating'], ev['volatility'], ev['uncertainty'], ev['bias'], coeffs)
+        # Pass criterion_id so calculate_trapezoid knows whether to use scale or numeric % spreads
+        trap = calculate_trapezoid(
+            ev['rating'], 
+            ev['volatility'], 
+            ev['uncertainty'], 
+            ev['bias'], 
+            coeffs, 
+            criterion_id=ev.get('criterion_id')
+        )
         ev['trapezoid'] = trap
         ev['coefficients'] = coeffs
         
@@ -359,6 +374,8 @@ with tab_math:
         st.caption("Tune how volatility, uncertainty, and bias physically shape bounds. **Saves & recalculates all stored evaluations.**")
         
         coeffs = rating_config.get("coefficients", {})
+        
+        st.markdown("**Scale / Binary Multipliers (Absolute 0-10 Scale):**")
         c1, c2, c3 = st.columns(3)
         with c1:
             new_kv = st.number_input("Volatility (Kv)", value=float(coeffs.get("Kv", 0.5)), step=0.1)
@@ -367,8 +384,24 @@ with tab_math:
         with c3:
             new_kb = st.number_input("Bias Shift (Kb)", value=float(coeffs.get("Kb", 1.0)), step=0.1)
 
+        st.markdown("**Numeric Multipliers (% Relative Spread of Base Value r):**")
+        nc1, nc2, nc3 = st.columns(3)
+        with nc1:
+            new_kv_num = st.number_input("Numeric Volatility (% per V)", value=float(coeffs.get("Kv_numeric", 5.0)), step=0.5, format="%.1f")
+        with nc2:
+            new_ke_num = st.number_input("Numeric Uncertainty (% per E)", value=float(coeffs.get("Ke_numeric", 5.0)), step=0.5, format="%.1f")
+        with nc3:
+            new_kb_num = st.number_input("Numeric Bias Shift (%)", value=float(coeffs.get("Kb_numeric", 2.0)), step=0.5, format="%.1f")
+
         if st.form_submit_button("💾 Save Multipliers & Recalculate Evaluations", type="primary"):
-            new_coeffs = {"Kv": new_kv, "Ke": new_ke, "Kb": new_kb}
+            new_coeffs = {
+                "Kv": new_kv, 
+                "Ke": new_ke, 
+                "Kb": new_kb,
+                "Kv_numeric": new_kv_num,
+                "Ke_numeric": new_ke_num,
+                "Kb_numeric": new_kb_num
+            }
             rating_config["coefficients"] = new_coeffs
             save_rating_config(rating_config)
             recalculate_all_evaluations(new_coeffs)

@@ -169,7 +169,9 @@ def execute_run(method_names: List[str], run_name: str):
         "WASPAS_lambda": config.get("waspas_lambda", config.get("WASPAS_lambda", 0.5)),
         "promethee_q": float(config.get("promethee_q", 0.1)),
         "promethee_p": float(config.get("promethee_p", 6.0)),
-        "promethee_pref_func": config.get("promethee_pref_func", "vshape_2")
+        "promethee_pref_func": config.get("promethee_pref_func", "vshape_2"),
+        "normalization_mode": config.get("normalization_mode", "default"),
+        "normalization_ceiling": float(config.get("normalization_ceiling", 10.0))
     }
     
     run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"

@@ -193,7 +193,8 @@ def plot_category_tornado(tornado_data: dict, is_flat: bool) -> go.Figure:
     pct_str = f"±{int(meta.get('perturbation_fraction', 0.5)*100)}%"
 
     sorted_entries = list(reversed(entries))
-    labels = [e["domain_name"] for e in sorted_entries]
+    # Use safe fallback to support both domain_name and criterion_name
+    labels = [e.get("domain_name", e.get("criterion_name", "Factor")) for e in sorted_entries]
     deltas_low = [e["delta_low"] for e in sorted_entries]
     deltas_high = [e["delta_high"] for e in sorted_entries]
 
@@ -227,7 +228,8 @@ def plot_boundary_range(thresh: dict, alternatives: list, is_flat: bool) -> go.F
     base_w = thresh["baseline_weight"] * 100
     safe_min = thresh["safe_stability_range"][0] * 100
     safe_max = thresh["safe_stability_range"][1] * 100
-    domain = thresh["target_domain_name"]
+    # Use safe fallback for domain vs criterion name keys
+    domain = thresh.get("target_domain_name", thresh.get("target_criterion_name", "Factor"))
     winner = thresh["baseline_winner"]
     method = thresh["method"]
     
@@ -809,7 +811,8 @@ with tab_sens:
             )
             with st.expander("📋 View Factor Leverage Table", expanded=True):
                 t_df = pd.DataFrame([{
-                    "Factor": e["domain_name"], "Baseline Weight": f"{e['baseline_weight']*100:.1f}%",
+                    "Factor": e.get("domain_name", e.get("criterion_name", "Unknown")), 
+                    "Baseline Weight": f"{e['baseline_weight']*100:.1f}%",
                     "Test Range": f"{e['w_low']*100:.1f}% → {e['w_high']*100:.1f}%",
                     "Score Swing (Δ)": f"{e['total_swing']:.5f}",
                     "Impact when Decreased": f"{e['delta_low']:+.5f}", "Impact when Increased": f"{e['delta_high']:+.5f}"

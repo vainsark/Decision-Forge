@@ -320,21 +320,81 @@ factors = factors_cfg.get("factors", [])
 global_weights = weights_data.get("global_weights", {})
 
 if factors and evaluations:
+    # Determine effective normalization mode per model defaults (WSM/WPM -> sum, WASPAS -> linear, else user setting)
+    model_upper = selected_breakdown_model.upper()
+    run_params = run_data.get("parameters", {})
+    run_norm_mode = run_params.get("normalization_mode", "default")
+    ceiling = float(run_params.get("normalization_ceiling", 10.0))
+
+    if run_norm_mode == "default" or not run_norm_mode:
+        if "WSM" in model_upper or "WPM" in model_upper:
+            effective_norm_mode = "sum"
+        elif "WASPAS" in model_upper:
+            effective_norm_mode = "linear"
+        else:
+            effective_norm_mode = "sum"
+    else:
+        effective_norm_mode = run_norm_mode
+
+    # Build evaluation matrix & normalize columns properly
+    c_ids = [f["id"] for f in factors]
+    matrix = np.zeros((len(alternatives), len(factors)))
+    types_arr = np.zeros(len(factors))
+
+    for j, f in enumerate(factors):
+        fid = f["id"]
+        types_arr[j] = f.get("type", 1)
+        for i, alt in enumerate(alternatives):
+            ev = next((e for e in evaluations if (e.get("alternative") == alt or e.get("country") == alt) and e.get("criterion_id") == fid), None)
+            val = float(ev.get("rating", 5.0)) if ev else 5.0
+            matrix[i, j] = val if val > 0 else 0.0001
+
+    def _normalize_col(col: np.ndarray, crit_type: int, norm_mode: str, ceiling_val: float) -> np.ndarray:
+        is_benefit = (crit_type == 1 or crit_type == "max" or crit_type > 0)
+        safe_col = np.where(col == 0, 1e-6, col)
+        if norm_mode == "sum":
+            if is_benefit:
+                total = np.sum(safe_col)
+                return safe_col / total if total > 0 else safe_col
+            else:
+                inv_col = 1.0 / safe_col
+                inv_sum = np.sum(inv_col)
+                return inv_col / inv_sum if inv_sum > 0 else safe_col
+        elif norm_mode == "linear":
+            if is_benefit:
+                max_val = np.max(safe_col)
+                return safe_col / max_val if max_val > 0 else safe_col
+            else:
+                min_val = np.min(safe_col)
+                return min_val / safe_col
+        elif norm_mode == "absolute":
+            if is_benefit:
+                return safe_col / ceiling_val
+            else:
+                return (ceiling_val - safe_col) / ceiling_val
+        else:
+            max_val = np.max(safe_col)
+            return safe_col / max_val if max_val > 0 else safe_col
+
+    normalized_matrix = np.zeros_like(matrix)
+    for j in range(matrix.shape[1]):
+        col = matrix[:, j]
+        c_type = int(types_arr[j])
+        normalized_matrix[:, j] = _normalize_col(col, c_type, effective_norm_mode, ceiling)
+
     if is_flat_mode:
         score_breakdown = {alt: {f["name"]: 0.0 for f in factors} for alt in alternatives}
         totals = {f["name"]: 0.0 for f in factors}
 
-        for f in factors:
+        for j, f in enumerate(factors):
             fid = f["id"]
             f_name = f.get("name", fid)
             gw = float(global_weights.get(fid, 0.0))
             totals[f_name] = gw
             
-            for alt in alternatives:
-                ev = next((e for e in evaluations if e.get("alternative", e.get("country")) == alt and e.get("criterion_id") == fid), None)
-                if ev:
-                    r = float(ev.get("rating", 5.0))
-                    score_breakdown[alt][f_name] = r * gw
+            for i, alt in enumerate(alternatives):
+                norm_val = normalized_matrix[i, j]
+                score_breakdown[alt][f_name] = norm_val * gw
 
         if selected_breakdown_model != "All-Model Average":
             model_key = selected_breakdown_model.lower()
@@ -400,7 +460,7 @@ if factors and evaluations:
         domain_scores = {alt: {d["name"]: 0.0 for d in valid_domains} for alt in alternatives}
         domain_totals = {d["name"]: 0.0 for d in valid_domains}
 
-        for f in factors:
+        for j, f in enumerate(factors):
             fid = f["id"]
             dom_id = f.get("domain_id")
             d_obj = next((d for d in valid_domains if d["id"] == dom_id), None)
@@ -410,12 +470,10 @@ if factors and evaluations:
             gw = float(global_weights.get(fid, 0.0))
             domain_totals[d_name] = domain_totals.get(d_name, 0.0) + gw
             
-            for alt in alternatives:
-                ev = next((e for e in evaluations if e.get("alternative", e.get("country")) == alt and e.get("criterion_id") == fid), None)
-                if ev:
-                    r = float(ev.get("rating", 5.0))
-                    if d_name in domain_scores[alt]:
-                        domain_scores[alt][d_name] += r * gw
+            for i, alt in enumerate(alternatives):
+                norm_val = normalized_matrix[i, j]
+                if d_name in domain_scores[alt]:
+                    domain_scores[alt][d_name] += norm_val * gw
 
         if selected_breakdown_model != "All-Model Average":
             model_key = selected_breakdown_model.lower()

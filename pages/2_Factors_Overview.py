@@ -110,10 +110,13 @@ with tab_overview:
         else:
             table_data = []
             for f in factors:
+                eval_type = f.get("evaluation_type", "scale")
+                unit_str = f" ({f.get('unit')})" if eval_type == "numeric" and f.get("unit") else ""
                 table_data.append({
                     "ID": f["id"],
                     "Criterion": f["name"],
                     "Short Name": f.get("short_name", ""),
+                    "Type": eval_type.capitalize() + unit_str,
                     "Optimization": "Benefit (+1) [Higher is better]" if f.get("type", 1) == 1 else "Cost (-1) [Lower is better]",
                     "Description": f.get("description", "")
                 })
@@ -130,10 +133,13 @@ with tab_overview:
                     if d_factors:
                         table_data = []
                         for f in d_factors:
+                            eval_type = f.get("evaluation_type", "scale")
+                            unit_str = f" ({f.get('unit')})" if eval_type == "numeric" and f.get("unit") else ""
                             table_data.append({
                                 "ID": f["id"],
                                 "Criterion": f["name"],
                                 "Short Name": f.get("short_name", ""),
+                                "Type": eval_type.capitalize() + unit_str,
                                 "Optimization": "Benefit (+1) [Higher is better]" if f.get("type", 1) == 1 else "Cost (-1) [Lower is better]",
                                 "Description": f.get("description", "")
                             })
@@ -147,23 +153,56 @@ with tab_overview:
 with tab_manage:
     if is_flat_mode:
         st.subheader("Add New Criterion")
-        with st.form("add_criterion_flat_form", clear_on_submit=True):
+        
+        # Handle deferred resetting of inputs before widgets are instantiated
+        if st.session_state.get("reset_flat_inputs", False):
+            st.session_state["flat_cr_name"] = ""
+            st.session_state["flat_cr_short"] = ""
+            st.session_state["flat_cr_desc"] = ""
+            st.session_state["flat_unit"] = ""
+            st.session_state["reset_flat_inputs"] = False
+
+        # Initialize session state defaults if missing
+        if "flat_cr_name" not in st.session_state: st.session_state["flat_cr_name"] = ""
+        if "flat_cr_short" not in st.session_state: st.session_state["flat_cr_short"] = ""
+        if "flat_cr_desc" not in st.session_state: st.session_state["flat_cr_desc"] = ""
+        if "flat_unit" not in st.session_state: st.session_state["flat_unit"] = ""
+
+        with st.container(border=True):
             st.write("### 📄 New Criterion")
-            raw_cr_name = st.text_input("Criterion Name", placeholder="e.g., Battery Life, Price, Speed")
-            raw_cr_short = st.text_input("Short Name (Optional)", max_chars=30, placeholder="e.g., BAT")
-            raw_cr_desc = st.text_area("Description", placeholder="Describe how this criterion is measured...")
+            raw_cr_name = st.text_input("Criterion Name", placeholder="e.g., Battery Life, Price, Speed", key="flat_cr_name")
+            raw_cr_short = st.text_input("Short Name (Optional)", max_chars=30, placeholder="e.g., BAT", key="flat_cr_short")
+            raw_cr_desc = st.text_area("Description", placeholder="Describe how this criterion is measured...", key="flat_cr_desc")
+            
+            eval_type_label = st.selectbox(
+                "Evaluation Type:", 
+                ["Scale (1-10 Subjective)", "Numeric (Absolute Value)", "Binary (Yes/No)"],
+                help="Choose how this criterion will be scored during evaluations.",
+                key="flat_eval_type"
+            )
+            eval_type_map = {"Scale (1-10 Subjective)": "scale", "Numeric (Absolute Value)": "numeric", "Binary (Yes/No)": "binary"}
+            eval_type = eval_type_map[eval_type_label]
+            
+            unit = ""
+            if eval_type == "numeric":
+                unit = st.text_input("Unit of Measurement (e.g., $, hrs, g, MP)", placeholder="e.g. $", key="flat_unit")
+                
             c_type = st.radio(
                 "Optimization Direction:", 
                 ["Benefit (+1) - Higher score is better", "Cost (-1) - Lower score is better"],
-                help="Benefit criteria reward higher values. Cost criteria reward lower values."
+                help="Benefit criteria reward higher values. Cost criteria reward lower values.",
+                key="flat_c_type"
             )
             
-            if st.form_submit_button("Add Criterion", type="primary"):
+            if st.button("Add Criterion", type="primary", key="flat_add_btn"):
                 cr_name = (raw_cr_name or "").strip()
                 if cr_name:
                     type_val = 1 if "Benefit" in c_type else -1
-                    new_id = add_criterion("d01", cr_name, (raw_cr_desc or "").strip(), type_val, (raw_cr_short or "").strip())
+                    new_id = add_criterion("d01", cr_name, (raw_cr_desc or "").strip(), type_val, eval_type, unit, (raw_cr_short or "").strip())
                     st.success(f"Criterion '{cr_name}' ({new_id}) added successfully!")
+                    
+                    # Flag the inputs to be cleared on the next script run
+                    st.session_state["reset_flat_inputs"] = True
                     st.rerun()
                 else:
                     st.error("Criterion name is required.")
@@ -188,27 +227,59 @@ with tab_manage:
                         st.error("Category name is required.")
                         
         with col_crit:
-            with st.form("add_criterion_form", clear_on_submit=True):
+            # Handle deferred resetting of inputs before widgets are instantiated
+            if st.session_state.get("reset_hybrid_inputs", False):
+                st.session_state["hybrid_cr_name"] = ""
+                st.session_state["hybrid_cr_short"] = ""
+                st.session_state["hybrid_cr_desc"] = ""
+                st.session_state["hybrid_unit"] = ""
+                st.session_state["reset_hybrid_inputs"] = False
+
+            # Initialize session state defaults if missing
+            if "hybrid_cr_name" not in st.session_state: st.session_state["hybrid_cr_name"] = ""
+            if "hybrid_cr_short" not in st.session_state: st.session_state["hybrid_cr_short"] = ""
+            if "hybrid_cr_desc" not in st.session_state: st.session_state["hybrid_cr_desc"] = ""
+            if "hybrid_unit" not in st.session_state: st.session_state["hybrid_unit"] = ""
+
+            with st.container(border=True):
                 st.write("### 📄 New Criterion")
                 dom_map_inv = {d["name"]: d["id"] for d in domains}
                 
                 if dom_map_inv:
-                    sel_cat = st.selectbox("Assign to Category:", list(dom_map_inv.keys()))
-                    raw_cr_name = st.text_input("Criterion Name", placeholder="e.g., Battery Life, Price, Speed")
-                    raw_cr_short = st.text_input("Short Name (Optional)", max_chars=30, placeholder="e.g., BAT")
-                    raw_cr_desc = st.text_area("Description", placeholder="Describe how this criterion is measured...")
+                    sel_cat = st.selectbox("Assign to Category:", list(dom_map_inv.keys()), key="hybrid_sel_cat")
+                    raw_cr_name = st.text_input("Criterion Name", placeholder="e.g., Battery Life, Price, Speed", key="hybrid_cr_name")
+                    raw_cr_short = st.text_input("Short Name (Optional)", max_chars=30, placeholder="e.g., BAT", key="hybrid_cr_short")
+                    raw_cr_desc = st.text_area("Description", placeholder="Describe how this criterion is measured...", key="hybrid_cr_desc")
+                    
+                    eval_type_label = st.selectbox(
+                        "Evaluation Type:", 
+                        ["Scale (1-10 Subjective)", "Numeric (Absolute Value)", "Binary (Yes/No)"],
+                        help="Choose how this criterion will be scored during evaluations.",
+                        key="hybrid_eval_type"
+                    )
+                    eval_type_map = {"Scale (1-10 Subjective)": "scale", "Numeric (Absolute Value)": "numeric", "Binary (Yes/No)": "binary"}
+                    eval_type = eval_type_map[eval_type_label]
+                    
+                    unit = ""
+                    if eval_type == "numeric":
+                        unit = st.text_input("Unit of Measurement (e.g., $, hrs, g, MP)", placeholder="e.g. $", key="hybrid_unit")
+                        
                     c_type = st.radio(
                         "Optimization Direction:", 
                         ["Benefit (+1) - Higher score is better", "Cost (-1) - Lower score is better"],
-                        help="Benefit criteria reward higher values. Cost criteria reward lower values."
+                        help="Benefit criteria reward higher values. Cost criteria reward lower values.",
+                        key="hybrid_c_type"
                     )
                     
-                    if st.form_submit_button("Add Criterion", type="primary"):
+                    if st.button("Add Criterion", type="primary", key="hybrid_add_btn"):
                         cr_name = (raw_cr_name or "").strip()
                         if cr_name:
                             type_val = 1 if "Benefit" in c_type else -1
-                            new_id = add_criterion(dom_map_inv[sel_cat], cr_name, (raw_cr_desc or "").strip(), type_val, (raw_cr_short or "").strip())
+                            new_id = add_criterion(dom_map_inv[sel_cat], cr_name, (raw_cr_desc or "").strip(), type_val, eval_type, unit, (raw_cr_short or "").strip())
                             st.success(f"Criterion '{cr_name}' ({new_id}) added successfully!")
+                            
+                            # Flag the inputs to be cleared on the next script run
+                            st.session_state["reset_hybrid_inputs"] = True
                             st.rerun()
                         else:
                             st.error("Criterion name is required.")
@@ -221,7 +292,7 @@ with tab_manage:
 with tab_edit:
     if is_flat_mode:
         st.subheader("Edit Criterion")
-        st.caption("Fix typos, update descriptions, change short names, or adjust optimization direction.")
+        st.caption("Fix typos, update descriptions, change evaluation types, or adjust optimization direction.")
         
         crit_edit_map = {f"[{f['id']}] {f['name']}": f for f in factors}
         if crit_edit_map:
@@ -232,6 +303,18 @@ with tab_edit:
                 ed_cr_name = st.text_input("Criterion Name", value=target_crit.get("name") or "")
                 ed_cr_short = st.text_input("Short Name", value=target_crit.get("short_name") or "", max_chars=30)
                 ed_cr_desc = st.text_area("Description", value=target_crit.get("description") or "")
+                
+                curr_eval_type = target_crit.get("evaluation_type", "scale")
+                eval_type_options = ["Scale (1-10 Subjective)", "Numeric (Absolute Value)", "Binary (Yes/No)"]
+                eval_type_rev_map = {"scale": 0, "numeric": 1, "binary": 2}
+                
+                ed_eval_label = st.selectbox("Evaluation Type:", eval_type_options, index=eval_type_rev_map.get(curr_eval_type, 0))
+                eval_type_map = {"Scale (1-10 Subjective)": "scale", "Numeric (Absolute Value)": "numeric", "Binary (Yes/No)": "binary"}
+                ed_eval_type = eval_type_map[ed_eval_label]
+                
+                ed_unit = ""
+                if ed_eval_type == "numeric":
+                    ed_unit = st.text_input("Unit of Measurement", value=target_crit.get("unit") or "")
                 
                 current_type = target_crit.get("type", 1)
                 type_options = ["Benefit (+1) - Higher score is better", "Cost (-1) - Lower score is better"]
@@ -249,6 +332,8 @@ with tab_edit:
                                 f["short_name"] = (ed_cr_short or "").strip()
                                 f["description"] = (ed_cr_desc or "").strip()
                                 f["type"] = type_val
+                                f["evaluation_type"] = ed_eval_type
+                                f["unit"] = ed_unit.strip() if ed_eval_type == "numeric" else ""
                                 break
                         save_factors_config(config)
                         st.success(f"Criterion '{cr_name}' updated successfully!")
@@ -310,6 +395,18 @@ with tab_edit:
                         ed_cr_short = st.text_input("Short Name", value=target_crit.get("short_name") or "", max_chars=30)
                         ed_cr_desc = st.text_area("Description", value=target_crit.get("description") or "")
                         
+                        curr_eval_type = target_crit.get("evaluation_type", "scale")
+                        eval_type_options = ["Scale (1-10 Subjective)", "Numeric (Absolute Value)", "Binary (Yes/No)"]
+                        eval_type_rev_map = {"scale": 0, "numeric": 1, "binary": 2}
+                        
+                        ed_eval_label = st.selectbox("Evaluation Type:", eval_type_options, index=eval_type_rev_map.get(curr_eval_type, 0))
+                        eval_type_map = {"Scale (1-10 Subjective)": "scale", "Numeric (Absolute Value)": "numeric", "Binary (Yes/No)": "binary"}
+                        ed_eval_type = eval_type_map[ed_eval_label]
+                        
+                        ed_unit = ""
+                        if ed_eval_type == "numeric":
+                            ed_unit = st.text_input("Unit of Measurement", value=target_crit.get("unit") or "")
+                        
                         current_type = target_crit.get("type", 1)
                         type_options = ["Benefit (+1) - Higher score is better", "Cost (-1) - Lower score is better"]
                         default_type_idx = 0 if current_type == 1 else 1
@@ -326,6 +423,8 @@ with tab_edit:
                                         f["short_name"] = (ed_cr_short or "").strip()
                                         f["description"] = (ed_cr_desc or "").strip()
                                         f["type"] = type_val
+                                        f["evaluation_type"] = ed_eval_type
+                                        f["unit"] = ed_unit.strip() if ed_eval_type == "numeric" else ""
                                         break
                                 save_factors_config(config)
                                 st.success(f"Criterion '{cr_name}' updated successfully!")

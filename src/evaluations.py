@@ -45,7 +45,10 @@ def load_rating_config() -> Dict[str, Any]:
         "coefficients": {
             "Kv": 0.5,
             "Ke": 0.5,
-            "Kb": 1.0
+            "Kb": 1.0,
+            "Kv_numeric": 5.0,
+            "Ke_numeric": 5.0,
+            "Kb_numeric": 2.0
         },
         "promethee_q": 0.5,
         "promethee_p": 3.5,
@@ -74,96 +77,108 @@ def save_rating_config(config: Dict[str, Any]):
 # ==========================================
 # MATHEMATICAL CORE: TRAPEZOID CONSTRUCTION
 # ==========================================
-def calculate_trapezoid(rating: float, volatility: float, uncertainty: float, bias: str, coeffs: dict) -> tuple:
+def calculate_trapezoid(rating: float, volatility: float, uncertainty: float, bias: str, coeffs: dict, criterion_id: str = None) -> tuple:
     """
     Calculates the fuzzy trapezoid (a, b, c, d) for an evaluation.
-
-    Base (Neutral) Construction:
-        a = r - E*Ke - V*Kv
-        b = r - E*Ke
-        c = r + E*Ke
-        d = r + E*Ke + V*Kv
-
-    Directional Bias:
-        - Optimistic ('opt'): Shifts ONLY the lower bounds [a, b] toward r by Kb.
-          Represents a mitigated downside (less lower-end risk).
-        - Pessimistic ('pes'): Shifts ONLY the upper bounds [c, d] toward r by Kb.
-          Represents a mitigated upside (less higher-end potential).
-        * The opposite half remains completely unchanged.
-        * The shifted values are capped so they never cross the center rating r.
-
-    Args:
-        rating (float): The center rating (r)
-        volatility (float): Volatility score (V)
-        uncertainty (float): Uncertainty score (E)
-        bias (str): 'neutral', 'opt', or 'pes'
-        coeffs (dict): Dictionary containing 'Kv', 'Ke', 'Kb' multipliers
-
-    Returns:
-        tuple: (a, b, c, d) bounded between 0 and 10.
+    Supports both absolute 0-10 scale/binary evaluations and percentage-relative numeric bounds.
     """
     r = float(rating)
     v = float(volatility)
     u = float(uncertainty)
 
-    # Extract coefficients (with safe fallbacks)
-    kv = coeffs.get('Kv', 0.5)
-    ke = coeffs.get('Ke', 0.5)
-    kb = coeffs.get('Kb', coeffs.get('bias_coefficient', 1.0))
+    # Determine evaluation type if criterion_id is provided
+    eval_type = "scale"
+    if criterion_id:
+        try:
+            f_config = load_factors_config()
+            factor = next((f for f in f_config.get("factors", []) if f["id"] == criterion_id), None)
+            if factor:
+                eval_type = factor.get("evaluation_type", "scale")
+        except Exception:
+            pass
 
-    # 1. Construct the neutral base trapezoid
-    a = r - (u * ke) - (v * kv)
-    b = r - (u * ke)
-    c = r + (u * ke)
-    d = r + (u * ke) + (v * kv)
+    if eval_type == "numeric":
+        # Extract numeric percentage coefficients (default 5%, 5%, 2%)
+        kv_num = coeffs.get('Kv_numeric', 5.0) / 100.0
+        ke_num = coeffs.get('Ke_numeric', 5.0) / 100.0
+        kb_num = coeffs.get('Kb_numeric', 2.0) / 100.0
 
-    # 2. Apply Directional Bias
-    if bias == 'opt':
-        # Shift lower bounds up, but do not let them cross the center rating `r`
-        a = min(a + kb, r)
-        b = min(b + kb, r)
-    elif bias == 'pes':
-        # Shift upper bounds down, but do not let them cross the center rating `r`
-        c = max(c - kb, r)
-        d = max(d - kb, r)
+        u_spread = r * (u * ke_num)
+        v_spread = r * (v * kv_num)
 
-    # 3. Clip to the absolute 0-10 scale
-    a = max(0.0, min(10.0, a))
-    b = max(0.0, min(10.0, b))
-    c = max(0.0, min(10.0, c))
-    d = max(0.0, min(10.0, d))
+        a = r - u_spread - v_spread
+        b = r - u_spread
+        c = r + u_spread
+        d = r + u_spread + v_spread
 
-    # 4. Enforce structural validity (a <= b <= c <= d)
-    b = max(a, b)
-    c = max(b, c)
-    d = max(c, d)
+        kb_val = r * kb_num
+        if bias == 'opt':
+            a = min(a + kb_val, r)
+            b = min(b + kb_val, r)
+        elif bias == 'pes':
+            c = max(c - kb_val, r)
+            d = max(d - kb_val, r)
 
-    return (a, b, c, d)
+        a = max(0.0, a)
+        b = max(a, b)
+        c = max(b, c)
+        d = max(c, d)
+
+        return (a, b, c, d)
+
+    else:
+        # Scale or Binary (binary evaluations map to 0-10 scale)
+        kv = coeffs.get('Kv', 0.5)
+        ke = coeffs.get('Ke', 0.5)
+        kb = coeffs.get('Kb', coeffs.get('bias_coefficient', 1.0))
+
+        a = r - (u * ke) - (v * kv)
+        b = r - (u * ke)
+        c = r + (u * ke)
+        d = r + (u * ke) + (v * kv)
+
+        if bias == 'opt':
+            a = min(a + kb, r)
+            b = min(b + kb, r)
+        elif bias == 'pes':
+            c = max(c - kb, r)
+            d = max(d - kb, r)
+
+        a = max(0.0, min(10.0, a))
+        b = max(0.0, min(10.0, b))
+        c = max(0.0, min(10.0, c))
+        d = max(0.0, min(10.0, d))
+
+        b = max(a, b)
+        c = max(b, c)
+        d = max(c, d)
+
+        return (a, b, c, d)
 
 # ==========================================
 # EVALUATION I/O & MOCK DATA INJECTION
 # ==========================================
 def load_evaluations(rating_config: Dict[str, Any], factors_config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Loads joint evaluations. If missing, auto-generates neutral (5,0,0) data for testing UI."""
+    """Loads joint evaluations. If missing, auto-generates neutral data for testing UI."""
     filepath = get_evaluations_filepath()
     
     if os.path.exists(filepath):
         with open(filepath, 'r', encoding='utf-8') as f:
             return json.load(f)
             
-    # Auto-generate mock data if file doesn't exist
     evals = []
     alternatives = rating_config.get("alternatives", rating_config.get("countries", []))
     coeffs = rating_config.get("coefficients", {})
     
     for f in factors_config.get("factors", []):
         for alt in alternatives:
-            trap = calculate_trapezoid(5.0, 0, 0, "neutral", coeffs)
+            init_val = 10.0 if f.get("evaluation_type") == "binary" else (0.0 if f.get("evaluation_type") == "numeric" else 5.0)
+            trap = calculate_trapezoid(init_val, 0, 0, "neutral", coeffs, criterion_id=f["id"])
             evals.append({
                 "alternative": alt,
                 "country": alt,  # Legacy key support
                 "criterion_id": f["id"],
-                "rating": 5.0,
+                "rating": init_val,
                 "volatility": 0,
                 "uncertainty": 0,
                 "bias": "neutral",
